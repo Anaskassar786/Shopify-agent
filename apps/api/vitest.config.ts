@@ -7,11 +7,19 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       /**
-       * Coverage gate (P6: 80%+). M0 scope: pure contract modules with unit
-       * tests. Express wiring (app.ts, middleware glue, routers) is covered by
-       * integration tests from M1 — the gate list widens each milestone.
+       * Coverage gate (P6: 80%+). M1 scope: all first-party modules — including
+       * middleware and routers, which the supertest+PGlite integration suite
+       * exercises end-to-end. Excluded: composition/entry (server.ts, index.ts,
+       * app.ts) and the test harness itself.
        */
-      include: ["src/config/**", "src/lib/**", "src/modules/health/health.service.ts"],
+      include: [
+        "src/config/**",
+        "src/lib/**",
+        "src/middleware/**",
+        "src/modules/**",
+        "src/routes/**",
+      ],
+      exclude: ["src/**/*.test.ts", "src/test-support/**"],
       thresholds: {
         statements: 80,
         branches: 75,

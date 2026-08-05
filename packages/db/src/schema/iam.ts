@@ -30,11 +30,21 @@ export const users = pgTable(
     email: varchar("email", { length: 320 }).notNull(),
     /** Null for identities that only authenticate via Shopify session tokens. */
     passwordHash: text("password_hash"),
+    /**
+     * Shopify user id from the embedded session token (`sub`). Established by
+     * JIT provisioning on first embedded request; stable across reinstalls.
+     */
+    shopifyUserId: varchar("shopify_user_id", { length: 64 }),
     fullName: varchar("full_name", { length: 200 }).notNull(),
     status: userStatusEnum("status").notNull().default("ACTIVE"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true, mode: "date" }),
   },
-  (table) => [uniqueIndex("users_email_unique").on(sql`lower(${table.email})`)],
+  (table) => [
+    uniqueIndex("users_email_unique").on(sql`lower(${table.email})`),
+    uniqueIndex("users_shopify_user_unique")
+      .on(table.shopifyUserId)
+      .where(sql`${table.shopifyUserId} is not null`),
+  ],
 );
 
 /** RBAC catalog (P2/P12). Permissions seeded from code; roles composable per store. */

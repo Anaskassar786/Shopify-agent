@@ -25,13 +25,22 @@ const envSchema = z
     SHOPIFY_API_SECRET: optionalSecret,
     SHOPIFY_APP_URL: z.string().url().optional(),
     SHOPIFY_SCOPES: z.string().min(1).optional(),
+    SHOPIFY_API_VERSION: z.string().min(1).default("2025-10"),
 
     GEMINI_API_KEY: optionalSecret,
     AI_DEFAULT_GEMINI_MODEL: z.string().min(1).default("gemini-2.0-flash"),
 
     JWT_SECRET: optionalSecret,
     JWT_REFRESH_SECRET: optionalSecret,
+    JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
+    JWT_REFRESH_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(3600)
+      .max(90 * 24 * 3600)
+      .default(30 * 24 * 3600),
     ENCRYPTION_KEY: optionalSecret,
+    ENCRYPTION_KEY_PREVIOUS: optionalSecret,
 
     SHOPIFY_BILLING_PLAN: z.string().min(1).optional(),
 

@@ -32,13 +32,13 @@ describe("createLogger", () => {
     logger.info(
       {
         password: "hunter2",
-        nested: { accessToken: "shpat_xxx", refreshToken: "rt_xxx", apiKey: "ak_xxx" },
+        nested: { accessToken: "fake_access_token_value_xxx", refreshToken: "rt_xxx", apiKey: "ak_xxx" },
       },
       "security.test",
     );
     const raw = lines.join("");
     expect(raw).not.toContain("hunter2");
-    expect(raw).not.toContain("shpat_xxx");
+    expect(raw).not.toContain("fake_access_token_value_xxx");
     expect(raw).not.toContain("rt_xxx");
     expect(raw).not.toContain("ak_xxx");
     expect(raw).toContain("[REDACTED]");

@@ -49,5 +49,9 @@ CI: `.github/workflows/ci.yml` (typecheck → tests → build → integration vs
 
 ## Status
 
-- ✅ **M0 Foundation** — monorepo, shared types, 19-table tenant schema + migration, API skeleton (config/logging/envelope/errors/health), CI
-- ◻ M1 Shopify App Core (OAuth, session tokens, webhooks, RBAC/RLS) — next
+- ✅ **M0 Foundation** — monorepo, shared types, tenant schema + migrations, API skeleton (config/logging/envelope/errors/health)
+- ✅ **M1 Shopify App Core** — OAuth install (single-use state) · session-token→JWT auth with refresh rotation · AES-256-GCM token storage · HMAC + dedupe webhook pipeline (APP_UNINSTALLED + GDPR handled) · RBAC · Postgres RLS · 107 tests / 89% coverage · [milestone doc](docs/architecture/M1-shopify-core.md)
+- ◻ M2 Sync Engine + Data Plane — next
+
+Migrations: `packages/db/drizzle` (0000 core · 0001 shopify core · 0002 RLS).
+Seed after migrate: `pnpm --filter @profit/db run seed`.

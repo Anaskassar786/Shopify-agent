@@ -1,9 +1,20 @@
 import type { Server } from "node:http";
+import { Router } from "express";
 import { createDbClient, probeDbConnection, type DbClient } from "@profit/db";
-import { createApp } from "./app";
-import { loadEnv, type Env } from "./config/env";
+import { Environment } from "@profit/types";
+import { createApp, type AppRouters } from "./app";
+import { loadEnv, requireEnv, type Env } from "./config/env";
+import { EncryptionService } from "./lib/crypto/aes-gcm";
 import { createLogger, type Logger } from "./lib/logger";
+import { AuditService } from "./modules/audit/audit.service";
+import { AuthService } from "./modules/auth/auth.service";
+import { JwtService } from "./modules/auth/jwt.service";
+import { authRouter } from "./modules/auth/auth.router";
 import { HealthService } from "./modules/health/health.service";
+import { ShopifyOauthService } from "./modules/shopify/oauth.service";
+import { ShopifyWebhookService } from "./modules/shopify/webhooks/webhook.service";
+import { shopifyRouter } from "./modules/shopify/shopify.router";
+import { storeRouter } from "./modules/store/store.router";
 
 export interface RunningServer {
   readonly server: Server;
@@ -15,9 +26,9 @@ export interface RunningServer {
 const HOST = "0.0.0.0";
 
 /**
- * Composition root: env → logger → infra probes → app. Everything a module
- * needs is constructed HERE and injected (P1: dependency injection) — modules
- * never construct their own clients.
+ * Composition root (P1: dependency injection — modules never construct their
+ * own clients). Everything is built here from validated env, wired into the
+ * app, and owned through the shutdown lifecycle.
  */
 export async function startServer(): Promise<RunningServer> {
   const env = loadEnv();
@@ -27,24 +38,22 @@ export async function startServer(): Promise<RunningServer> {
     environment: env.NODE_ENV,
   });
 
-  // Dedicated low-capacity pool for readiness probes; app data-plane pools are
-  // created per module in later milestones and injected the same way.
-  let db: DbClient | undefined;
-  let dbProbe: (() => Promise<unknown>) | undefined;
-  if (env.DATABASE_URL !== undefined) {
-    db = createDbClient({ url: env.DATABASE_URL, maxConnections: 2 });
-    const sql = db.sql;
-    dbProbe = () => probeDbConnection(sql);
-  } else {
+  const db: DbClient | undefined =
+    env.DATABASE_URL !== undefined
+      ? createDbClient({ url: env.DATABASE_URL, maxConnections: 10 })
+      : undefined;
+  if (db === undefined) {
     logger.warn("DATABASE_URL not configured — readiness will report the database as skipped");
   }
 
   const healthService = new HealthService({
     version: env.APP_VERSION,
-    ...(dbProbe !== undefined ? { dbProbe } : {}),
+    ...(db !== undefined ? { dbProbe: () => probeDbConnection(db.sql) } : {}),
   });
 
-  const app = createApp({ env, logger, healthService });
+  const routers = buildRouters(env, logger, db);
+
+  const app = createApp({ env, logger, healthService, routers });
 
   const server = await new Promise<Server>((resolve, reject) => {
     const instance = app.listen(env.PORT, HOST, () => resolve(instance));
@@ -80,4 +89,89 @@ export async function startServer(): Promise<RunningServer> {
   });
 
   return { server, env, logger, shutdown };
+}
+
+function buildRouters(env: Env, logger: Logger, db: DbClient | undefined): AppRouters {
+  const shopifyConfigured =
+    db !== undefined &&
+    env.SHOPIFY_API_KEY !== undefined &&
+    env.SHOPIFY_API_SECRET !== undefined &&
+    env.SHOPIFY_APP_URL !== undefined &&
+    env.SHOPIFY_SCOPES !== undefined &&
+    env.ENCRYPTION_KEY !== undefined;
+
+  const authConfigured = shopifyConfigured && env.JWT_SECRET !== undefined;
+
+  if (db === undefined) {
+    // No database: API cannot serve tenant traffic — routers surface as 404 via
+    // notFound; health endpoints remain the only functional surface (M0 mode).
+    logger.warn("database not configured — auth/store/shopify routes disabled");
+    return { apiV1: stubApiV1() };
+  }
+
+  const audit = new AuditService(db.db, logger);
+
+  if (!shopifyConfigured || !authConfigured) {
+    if (env.NODE_ENV === Environment.Production || env.NODE_ENV === Environment.Staging) {
+      // Env superRefine already guarantees these in hosted envs; belt-and-braces
+      // so a misconfigured prod never runs half-wired.
+      throw new Error("shopify/auth configuration incomplete in hosted environment");
+    }
+    logger.warn("shopify credentials incomplete — /shopify/* and /api/v1/auth/* disabled (dev mode)");
+    return { apiV1: stubApiV1() };
+  }
+
+  const encryption = EncryptionService.create(
+    requireEnv(env, "ENCRYPTION_KEY"),
+    env.ENCRYPTION_KEY_PREVIOUS,
+  );
+  const oauth = new ShopifyOauthService({
+    db: db.db,
+    encryption,
+    config: {
+      apiKey: requireEnv(env, "SHOPIFY_API_KEY"),
+      apiSecret: requireEnv(env, "SHOPIFY_API_SECRET"),
+      appUrl: requireEnv(env, "SHOPIFY_APP_URL"),
+      scopes: requireEnv(env, "SHOPIFY_SCOPES"),
+      apiVersion: env.SHOPIFY_API_VERSION,
+    },
+    audit,
+    logger,
+  });
+  const webhooks = new ShopifyWebhookService({
+    db: db.db,
+    audit,
+    logger,
+    apiSecret: requireEnv(env, "SHOPIFY_API_SECRET"),
+  });
+  const jwt = new JwtService({
+    accessSecret: requireEnv(env, "JWT_SECRET"),
+    accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
+  });
+  const auth = new AuthService({
+    db: db.db,
+    jwt,
+    oauth,
+    audit,
+    logger,
+    encryption,
+    shopifyTokenConfig: {
+      apiKey: requireEnv(env, "SHOPIFY_API_KEY"),
+      apiSecret: requireEnv(env, "SHOPIFY_API_SECRET"),
+    },
+    refreshTtlSeconds: env.JWT_REFRESH_TTL_SECONDS,
+  });
+
+  return {
+    shopify: shopifyRouter({ oauth, webhooks, logger }),
+    apiV1: {
+      auth: authRouter({ auth, jwt }),
+      store: storeRouter({ db: db.db, jwt }),
+    },
+  };
+}
+
+/** Unwired-module routers: mounted paths stay absent → uniform 404 envelope. */
+function stubApiV1(): AppRouters["apiV1"] {
+  return { auth: Router(), store: Router() };
 }

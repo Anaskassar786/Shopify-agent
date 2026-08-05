@@ -89,6 +89,28 @@ export const webhookLogs = pgTable(
   ],
 );
 
+/**
+ * Single-use OAuth state nonces (P5: replay attack prevention). A state is
+ * minted at /shopify/install, must match at /shopify/callback within its TTL,
+ * and is burned on first use — a replayed callback fails closed.
+ * Pre-install by nature, so there is no store yet (documented exception).
+ */
+export const shopifyOauthStates = pgTable(
+  "shopify_oauth_states",
+  {
+    ...baseColumns,
+    state: varchar("state", { length: 128 }).notNull(),
+    shopDomain: varchar("shop_domain", { length: 255 }).notNull(),
+    grantScopes: text("grant_scopes").array().notNull().default(sql`'{}'::text[]`),
+    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true, mode: "date" }),
+  },
+  (table) => [
+    uniqueIndex("shopify_oauth_states_state_unique").on(table.state),
+    index("shopify_oauth_states_shop_idx").on(table.shopDomain),
+  ],
+);
+
 /** One row per sync run (P2 sync engine: logs + resumable cursor checkpoints). */
 export const syncHistory = pgTable(
   "sync_history",
