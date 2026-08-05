@@ -1,0 +1,24 @@
+{
+  "name": "profit-tool-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "PROFIT TOOL AI — Enterprise AI decision support & revenue automation for Shopify merchants.",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "dev": "pnpm --filter @profit/api run dev",
+    "build": "pnpm -r --if-present run build",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test": "pnpm -r --if-present run test",
+    "lint": "pnpm -r --if-present run lint",
+    "db:generate": "pnpm --filter @profit/db run generate",
+    "db:migrate": "pnpm --filter @profit/db run migrate",
+    "db:studio": "pnpm --filter @profit/db run studio"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}
