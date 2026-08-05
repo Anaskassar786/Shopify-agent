@@ -43,8 +43,14 @@ Shopify-agent/
 ├── packages/
 │   ├── types/               # Shared contracts: API envelope, domain enums, DTOs (zero runtime deps)
 │   ├── db/                  # Drizzle ORM schema · migrations · connection pool · RLS helpers
+│   ├── sync/                # Data plane: REST DTOs · writers · sync runner · webhook appliers · analytics (M2)
+│   ├── queue/               # Job port + BullMQ/memory drivers · durable background_jobs mirror (M2)
+│   ├── cache/               # Cache port + Redis/memory drivers · tenant-versioned StoreCache (M2)
+│   ├── shopify/             # Shopify transport: HTTP client · REST/GraphQL paginators · throttle · HMAC (M2)
+│   ├── crypto/              # AES-256-GCM helpers, shared by api + worker (M2)
+│   ├── logger/              # pino logger factory, shared by api + worker (M2)
 │   ├── ui/                  # Design system (tokens → Tailwind theme, components) (M3)
-│   └── config/              # Shared tsconfig / lint presets
+│   └── (config presets live at repo root: tsconfig.base.json)
 ├── docs/
 │   ├── spec/                # 12-part PRD (source of truth)
 │   └── architecture/        # This file + ADRs
@@ -84,16 +90,16 @@ Shopify-agent/
 - GraphQL: used **for Shopify Admin API calls** only (versioned client with cost-aware retry/backoff for Shopify rate limits); app API stays REST per Part 2. WebSockets: notification + automation-status channels (M3).
 
 ### 4.2 Worker fleet (apps/worker)
-- BullMQ + Redis. One process, one `Worker` per queue (8 queues) → horizontally scalable by process count.
-- Every job carries `{ jobId, storeId, idempotencyKey, traceId }`; handlers are **idempotent** (unique constraints + upserts) — duplicates from webhook retries are no-ops.
-- Webhook intake publishes to `sync` queue within the ack window; HMAC verified synchronously before enqueue.
-- Postgres `background_jobs/failed_jobs/job_retries` = durable audit mirror of BullMQ state (dead-letter → `failed_jobs` + admin alert).
+- BullMQ + Redis behind the `@profit/queue` **port** (memory driver for hermetic tests); one process registers one consumer per queue (8 queue names defined; M2 consumes `sync`, `analytics`, `cleanup`) → horizontally scalable by process count.
+- Every job carries `{ jobId, storeId, idempotencyKey, traceId }`; handlers are **idempotent** (unique constraints + upserts) — duplicates from webhook retries are no-ops. *(M2 as-built: payload Zod schemas shared producer↔consumer; retry budgets + timeouts on the definition, per-driver.)*
+- Webhook intake publishes to `sync` queue within the ack window; HMAC verified synchronously before enqueue. *(M2 as-built: durable handoff — intake persists `webhook_logs` RECEIVED + enqueues `webhook.process` keyed `webhook:{logId}`; worker applies the payload.)*
+- Postgres `background_jobs/failed_jobs/job_retries` = durable audit mirror of BullMQ state (dead-letter → `failed_jobs` + admin alert). *(M2 as-built: `JobPersistence` subscribes to port events and mirrors queued→RUNNING→COMPLETED/DEAD_LETTERED + every retry row.)*
 
 ### 4.3 Sync Engine
-- Modules: products, customers, orders, inventory, collections, discounts, metafields.
-- Modes: initial full (post-install, paginated cursor walk, resumable checkpoints in `sync_history`), incremental (webhook-driven), manual, scheduled (safety-net cron).
+- Modules: products, customers, orders, inventory, collections, discounts, metafields. *(M2 delivered, in `FULL_SYNC_ORDER` so FK resolution is local.)*
+- Modes: initial full (post-install, paginated cursor walk, resumable checkpoints in `sync_history`), incremental (webhook-driven), manual, scheduled (safety-net cron). *(M2 as-built: FULL runs resume from the last per-page `page_info` checkpoint; incrementals use last-completed `started_at − 60s` overlap watermarks; inventory+metafields run FULL daily since they lack `updated_at_min`.)*
 - Conflict rule: Shopify is source of truth (last-write-wins) — documented; local-only projection fields never overwritten.
-- Cache invalidation events emitted post-sync (Redis pub/sub → API cache bust).
+- Cache invalidation after writes. *(M2 as-built: tenant-versioned keyspace — `CacheInvalidator` INCRs `v:{storeId}:{domain}` so an entire tenant domain invalidates in O(1); no pub/sub needed yet — pub/sub remains the multi-replica event channel if cross-service push is required later.)*
 
 ### 4.4 AI Layer (ports & adapters)
 ```

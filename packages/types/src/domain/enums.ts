@@ -212,6 +212,32 @@ export const AiProviderId = {
 } as const;
 export type AiProviderId = (typeof AiProviderId)[keyof typeof AiProviderId];
 
+/** Catalog entity states mirrored from Shopify Admin (P2 data plane). */
+export const ProductStatus = {
+  Active: "ACTIVE",
+  Draft: "DRAFT",
+  Archived: "ARCHIVED",
+} as const;
+export type ProductStatus = (typeof ProductStatus)[keyof typeof ProductStatus];
+
+export const CollectionType = {
+  Custom: "CUSTOM",
+  Smart: "SMART",
+} as const;
+export type CollectionType = (typeof CollectionType)[keyof typeof CollectionType];
+
+/** Polymorphic metafield ownership (one table, many parent resources). */
+export const MetafieldOwnerType = {
+  Shop: "SHOP",
+  Product: "PRODUCT",
+  ProductVariant: "PRODUCT_VARIANT",
+  Collection: "COLLECTION",
+  Customer: "CUSTOMER",
+  Order: "ORDER",
+} as const;
+export type MetafieldOwnerType =
+  (typeof MetafieldOwnerType)[keyof typeof MetafieldOwnerType];
+
 /**
  * Shopify webhook topics registered by the app (P2 list) PLUS the three
  * mandatory GDPR/compliance topics required for App Store distribution.
@@ -228,6 +254,12 @@ export const ShopifyWebhookTopic = {
   ProductsCreate: "products/create",
   ProductsUpdate: "products/update",
   ProductsDelete: "products/delete",
+  CollectionsCreate: "collections/create",
+  CollectionsUpdate: "collections/update",
+  CollectionsDelete: "collections/delete",
+  DiscountsCreate: "discounts/create",
+  DiscountsUpdate: "discounts/update",
+  DiscountsDelete: "discounts/delete",
   InventoryLevelsUpdate: "inventory_levels/update",
   FulfillmentsCreate: "fulfillments/create",
   RefundsCreate: "refunds/create",

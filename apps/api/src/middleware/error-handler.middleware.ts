@@ -4,7 +4,7 @@ import type { ApiErrorItem } from "@profit/types";
 import { AppError, ErrorCode, ValidationError } from "../lib/errors";
 import { getRequestContext } from "../lib/context/request-context";
 import { errorEnvelope } from "../lib/http/envelope";
-import type { Logger } from "../lib/logger";
+import type { Logger } from "@profit/logger";
 
 /** Body-parser syntax failures arrive as raw SyntaxError with this marker. */
 function isBodyParseError(err: unknown): err is SyntaxError & { status: number } {

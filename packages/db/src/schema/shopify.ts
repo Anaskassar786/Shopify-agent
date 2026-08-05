@@ -124,6 +124,8 @@ export const syncHistory = pgTable(
     status: syncStatusEnum("status").notNull().default("PENDING"),
     /** Shopify pagination cursor checkpoint — a failed sync resumes here. */
     cursor: text("cursor"),
+    /** Groups the per-module runs of one full-sync orchestration (fan-in marker). */
+    runGroupId: uuid("run_group_id"),
     /** { processed, created, updated, failed, durationMs } — filled by the sync worker. */
     stats: jsonb("stats").notNull().default(sql`'{}'::jsonb`),
     retryCount: integer("retry_count").notNull().default(0),

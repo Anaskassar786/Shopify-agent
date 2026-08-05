@@ -1,6 +1,7 @@
 import { eq } from "@profit/db";
 import {
   auditLogs,
+  backgroundJobs,
   shopifyOauthStates,
   shopifySessions,
   stores,
@@ -220,7 +221,18 @@ describe("POST /shopify/webhooks", () => {
       .from(webhookLogs)
       .where(eq(webhookLogs.shopifyWebhookId, "del-customer-dup"));
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.status).toBe(WebhookStatus.Processed);
+    // M2 contract: business topics hand off durably — intake leaves the row
+    // RECEIVED (the worker transitions it) and exactly one persisted
+    // webhook.process job was scheduled, replay-safe via its jobId.
+    expect(rows[0]?.status).toBe(WebhookStatus.Received);
+    await env.settle();
+    const jobs = await env.db
+      .select()
+      .from(backgroundJobs)
+      .where(eq(backgroundJobs.idempotencyKey, `webhook:${rows[0]!.id}`));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.jobType).toBe("webhook.process");
+    expect(jobs[0]?.status).toBe("COMPLETED");
   });
 
   it("acknowledges webhooks for unknown stores without retry-baiting (200, logged)", async () => {

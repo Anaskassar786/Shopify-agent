@@ -11,16 +11,16 @@ import {
 } from "@profit/db";
 import { StoreStatus, SubscriptionStatus } from "@profit/types";
 import { withStoreScope } from "@profit/db";
-import type { EncryptionService } from "../../lib/crypto/aes-gcm";
+import type { EncryptionService } from "@profit/crypto";
 import {
   AuthenticationError,
   ShopifyApiError,
   ValidationError,
 } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
-import { verifyOauthQueryHmac, type QueryParams } from "../../lib/shopify/hmac";
-import { shopifyGraphql, shopifyPostJson, ShopifyHttpError } from "../../lib/shopify/http-client";
-import { sanitizeShopDomain } from "../../lib/shopify/shop-domain";
+import type { Logger } from "@profit/logger";
+import { verifyOauthQueryHmac, type QueryParams } from "@profit/shopify";
+import { shopifyGraphql, shopifyPostJson, ShopifyHttpError } from "@profit/shopify";
+import { sanitizeShopDomain } from "@profit/shopify";
 import type { AuditService } from "../audit/audit.service";
 
 /**
@@ -103,6 +103,13 @@ export interface OauthServiceDeps {
   readonly config: ShopifyOauthConfig;
   readonly audit: AuditService;
   readonly logger: Logger;
+  /**
+   * Post-provisioning fan-out (M2): fired once provisioning commits. Used to
+   * schedule the initial full sync + webhook reconciliation. Errors inside the
+   * hook are logged, never rethrown — a scheduling hiccup must not break the
+   * merchant's install redirect.
+   */
+  readonly afterProvision?: ((storeId: string) => Promise<void>) | undefined;
 }
 
 export class ShopifyOauthService {
@@ -111,6 +118,7 @@ export class ShopifyOauthService {
   private readonly config: ShopifyOauthConfig;
   private readonly audit: AuditService;
   private readonly logger: Logger;
+  private readonly afterProvision?: ((storeId: string) => Promise<void>) | undefined;
 
   constructor(deps: OauthServiceDeps) {
     this.db = deps.db;
@@ -118,6 +126,7 @@ export class ShopifyOauthService {
     this.config = deps.config;
     this.audit = deps.audit;
     this.logger = deps.logger;
+    if (deps.afterProvision !== undefined) this.afterProvision = deps.afterProvision;
   }
 
   /** GET /shopify/install — mint single-use state, return Shopify authorize URL. */
@@ -168,6 +177,14 @@ export class ShopifyOauthService {
     });
 
     await this.registerInstallWebhooks(shopDomain, storeId, token.access_token);
+
+    if (this.afterProvision !== undefined) {
+      try {
+        await this.afterProvision(storeId);
+      } catch (error) {
+        this.logger.error({ err: error, storeId }, "shopify.oauth.after_provision_failed");
+      }
+    }
     this.logger.info({ shopDomain, storeId }, "shopify.oauth.installed");
     return `https://admin.shopify.com/store/${shopDomain.replace(".myshopify.com", "")}/apps/${this.config.apiKey}`;
   }

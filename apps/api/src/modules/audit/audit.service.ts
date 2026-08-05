@@ -1,7 +1,7 @@
 import type { ProfitDb } from "@profit/db";
 import { auditLogs } from "@profit/db";
 import type { AuditResult } from "@profit/types";
-import type { Logger } from "../../lib/logger";
+import type { Logger } from "@profit/logger";
 
 /**
  * Audit writer (P2/P5: audit-ready pipeline). Fire-and-forget semantics are

@@ -1,7 +1,7 @@
 import { createSecretKey } from "node:crypto";
 import { decodeJwt, jwtVerify } from "jose";
 import { AuthenticationError, ValidationError } from "../errors";
-import { shopDomainFromIss, sanitizeShopDomain } from "./shop-domain";
+import { shopDomainFromIss, sanitizeShopDomain } from "@profit/shopify";
 
 /**
  * Shopify embedded-app session token verification (P2: Session Tokens; App

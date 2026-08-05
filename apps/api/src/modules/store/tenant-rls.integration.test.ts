@@ -3,6 +3,7 @@ import {
   currentScopedStoreId,
   stores,
   storeSettings,
+  subscriptions,
   withStoreScope,
 } from "@profit/db";
 import { StoreStatus, UserRole } from "@profit/types";
@@ -183,5 +184,43 @@ describe("HTTP tenant boundary: /api/v1/store", () => {
       .update(stores)
       .set({ status: StoreStatus.Active })
       .where(eq(stores.id, storeBId));
+  });
+
+  it("stores without settings/subscription rows return nulls (provisioning edge)", async () => {
+    // Can only occur between store insert and settings/subscription
+    // provisioning (or after a failed rollout) — the API must still answer.
+    const settingsRow = await env.db
+      .select()
+      .from(storeSettings)
+      .where(eq(storeSettings.storeId, storeBId));
+    const subRow = await env.db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.storeId, storeBId));
+    expect(settingsRow).toHaveLength(1);
+    expect(subRow).toHaveLength(1);
+
+    await env.db.delete(subscriptions).where(eq(subscriptions.storeId, storeBId));
+    await env.db.delete(storeSettings).where(eq(storeSettings.storeId, storeBId));
+    try {
+      const jwt = new JwtService({ accessSecret: ACCESS_SECRET, accessTtlSeconds: 900 });
+      const token = await jwt.signAccessToken({
+        userId: ownerUserId,
+        sessionId: "66666666-7777-4888-8999-000000000000",
+        storeId: storeBId,
+        role: UserRole.Owner,
+        permissions: ["store:read"],
+      });
+      const res = await request(env.app)
+        .get("/api/v1/store")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
+      expect(res.body.data.store.id).toBe(storeBId);
+      expect(res.body.data.settings).toBeNull();
+      expect(res.body.data.subscription).toBeNull();
+    } finally {
+      await env.db.insert(storeSettings).values(settingsRow);
+      await env.db.insert(subscriptions).values(subRow);
+    }
   });
 });

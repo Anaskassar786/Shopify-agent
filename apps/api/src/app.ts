@@ -3,7 +3,7 @@ import cors from "cors";
 import express, { type Express, type Router as ExpressRouter } from "express";
 import helmet from "helmet";
 import type { Env } from "./config/env";
-import type { Logger } from "./lib/logger";
+import type { Logger } from "@profit/logger";
 import { errorHandlerMiddleware } from "./middleware/error-handler.middleware";
 import { httpLoggerMiddleware } from "./middleware/http-logger.middleware";
 import { notFoundMiddleware } from "./middleware/not-found.middleware";

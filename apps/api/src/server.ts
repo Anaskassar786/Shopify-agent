@@ -1,11 +1,15 @@
+import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import { Router } from "express";
+import { createCache, createStoreCache } from "@profit/cache";
 import { createDbClient, probeDbConnection, type DbClient } from "@profit/db";
 import { Environment } from "@profit/types";
+import { createJobQueue, JobPersistence } from "@profit/queue";
+import { ShopifyEnsureWebhooksJob, SyncStoreFullJob, WebhookProcessJob } from "@profit/sync";
 import { createApp, type AppRouters } from "./app";
 import { loadEnv, requireEnv, type Env } from "./config/env";
-import { EncryptionService } from "./lib/crypto/aes-gcm";
-import { createLogger, type Logger } from "./lib/logger";
+import { EncryptionService } from "@profit/crypto";
+import { createLogger, type Logger } from "@profit/logger";
 import { AuditService } from "./modules/audit/audit.service";
 import { AuthService } from "./modules/auth/auth.service";
 import { JwtService } from "./modules/auth/jwt.service";
@@ -15,6 +19,14 @@ import { ShopifyOauthService } from "./modules/shopify/oauth.service";
 import { ShopifyWebhookService } from "./modules/shopify/webhooks/webhook.service";
 import { shopifyRouter } from "./modules/shopify/shopify.router";
 import { storeRouter } from "./modules/store/store.router";
+import { syncRouter } from "./modules/sync/sync.router";
+import { analyticsRouter } from "./modules/analytics/analytics.router";
+import {
+  customersRouter,
+  inventoryRouter,
+  ordersRouter,
+  productsRouter,
+} from "./modules/catalog/catalog.router";
 
 export interface RunningServer {
   readonly server: Server;
@@ -125,6 +137,39 @@ function buildRouters(env: Env, logger: Logger, db: DbClient | undefined): AppRo
     requireEnv(env, "ENCRYPTION_KEY"),
     env.ENCRYPTION_KEY_PREVIOUS,
   );
+
+  // M2 data-plane producers: queue + cache + durable job mirror. Driver
+  // selection happens inside the factories (Redis → BullMQ/RedisCache;
+  // absent → in-process), never in business code.
+  const cache = createCache({ logger, redisUrl: env.REDIS_URL });
+  const queue = createJobQueue({ logger, redisUrl: env.REDIS_URL });
+  const persistence = new JobPersistence(db.db, logger);
+
+  const enqueueWebhookProcess = async (storeId: string, webhookLogId: string): Promise<void> => {
+    await persistence.enqueuePersistent(
+      queue,
+      WebhookProcessJob,
+      { storeId, webhookLogId },
+      { jobId: `webhook:${webhookLogId}` },
+    );
+  };
+
+  const afterStoreProvisioned = async (storeId: string): Promise<void> => {
+    const runGroupId = randomUUID();
+    await persistence.enqueuePersistent(
+      queue,
+      SyncStoreFullJob,
+      { storeId, runGroupId },
+      { jobId: `sync:full:${storeId}:${runGroupId}` },
+    );
+    await persistence.enqueuePersistent(
+      queue,
+      ShopifyEnsureWebhooksJob,
+      { storeId },
+      { jobId: `webhooks:ensure:${storeId}:${runGroupId}` },
+    );
+  };
+
   const oauth = new ShopifyOauthService({
     db: db.db,
     encryption,
@@ -137,12 +182,22 @@ function buildRouters(env: Env, logger: Logger, db: DbClient | undefined): AppRo
     },
     audit,
     logger,
+    afterProvision: async (storeId) => {
+      // A failed scheduling attempt must never break the install redirect —
+      // the daily maintenance tick re-drives both jobs.
+      try {
+        await afterStoreProvisioned(storeId);
+      } catch (error) {
+        logger.error({ err: error, storeId }, "shopify.provision_fanout.failed");
+      }
+    },
   });
   const webhooks = new ShopifyWebhookService({
     db: db.db,
     audit,
     logger,
     apiSecret: requireEnv(env, "SHOPIFY_API_SECRET"),
+    enqueueWebhookProcess,
   });
   const jwt = new JwtService({
     accessSecret: requireEnv(env, "JWT_SECRET"),
@@ -167,11 +222,30 @@ function buildRouters(env: Env, logger: Logger, db: DbClient | undefined): AppRo
     apiV1: {
       auth: authRouter({ auth, jwt }),
       store: storeRouter({ db: db.db, jwt }),
+      sync: syncRouter({ db: db.db, jwt, queue, persistence, cache }),
+      analytics: analyticsRouter({
+        db: db.db,
+        jwt,
+        storeCacheFor: (storeId) => createStoreCache(cache, storeId, logger),
+      }),
+      products: productsRouter({ db: db.db, jwt }),
+      customers: customersRouter({ db: db.db, jwt }),
+      orders: ordersRouter({ db: db.db, jwt }),
+      inventory: inventoryRouter({ db: db.db, jwt }),
     },
   };
 }
 
 /** Unwired-module routers: mounted paths stay absent → uniform 404 envelope. */
 function stubApiV1(): AppRouters["apiV1"] {
-  return { auth: Router(), store: Router() };
+  return {
+    auth: Router(),
+    store: Router(),
+    sync: Router(),
+    analytics: Router(),
+    products: Router(),
+    customers: Router(),
+    orders: Router(),
+    inventory: Router(),
+  };
 }

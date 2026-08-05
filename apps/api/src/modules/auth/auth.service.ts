@@ -10,9 +10,9 @@ import {
   users,
 } from "@profit/db";
 import { StoreStatus, UserRole } from "@profit/types";
-import type { EncryptionService } from "../../lib/crypto/aes-gcm";
+import type { EncryptionService } from "@profit/crypto";
 import { AuthenticationError, ForbiddenError } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
+import type { Logger } from "@profit/logger";
 import { verifyShopifySessionToken } from "../../lib/shopify/session-token";
 import type { AuditService } from "../audit/audit.service";
 import type { ShopifyOauthService } from "../shopify/oauth.service";

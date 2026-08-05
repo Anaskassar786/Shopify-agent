@@ -5,12 +5,20 @@ import { Writable } from "node:stream";
 import type { Express } from "express";
 import { SignJWT } from "jose";
 import { vi } from "vitest";
+import { MemoryCache } from "@profit/cache";
 import { seedPlatformCatalogs, type ProfitDb } from "@profit/db";
 import { createTestDatabase } from "@profit/db/testing";
+import { JobPersistence, MemoryJobQueue } from "@profit/queue";
+import {
+  ShopifyEnsureWebhooksJob,
+  SyncModuleJob,
+  SyncStoreFullJob,
+  WebhookProcessJob,
+} from "@profit/sync";
 import { createApp } from "../app";
 import { loadEnv, type Env } from "../config/env";
-import { EncryptionService } from "../lib/crypto/aes-gcm";
-import { createLogger, type Logger } from "../lib/logger";
+import { EncryptionService } from "@profit/crypto";
+import { createLogger, type Logger } from "@profit/logger";
 import { AuditService } from "../modules/audit/audit.service";
 import { AuthService } from "../modules/auth/auth.service";
 import { JwtService } from "../modules/auth/jwt.service";
@@ -20,6 +28,15 @@ import { ShopifyOauthService } from "../modules/shopify/oauth.service";
 import { ShopifyWebhookService } from "../modules/shopify/webhooks/webhook.service";
 import { shopifyRouter } from "../modules/shopify/shopify.router";
 import { storeRouter } from "../modules/store/store.router";
+import { syncRouter } from "../modules/sync/sync.router";
+import { analyticsRouter } from "../modules/analytics/analytics.router";
+import {
+  customersRouter,
+  inventoryRouter,
+  ordersRouter,
+  productsRouter,
+} from "../modules/catalog/catalog.router";
+import { createStoreCache } from "@profit/cache";
 
 /**
  * Integration harness: the REAL app against a REAL Postgres engine (PGlite)
@@ -41,6 +58,15 @@ export interface TestEnvironment {
   readonly encryption: EncryptionService;
   readonly authService: AuthService;
   readonly jwtService: JwtService;
+  readonly queue: MemoryJobQueue;
+  readonly cache: MemoryCache;
+  readonly persistence: JobPersistence;
+  /**
+   * Drain the in-process queue. Handlers registered by the producer side
+   * are no-ops (worker handlers live in apps/worker and are covered by its
+   * suite); draining proves enqueue → persistence → lifecycle plumbing.
+   */
+  readonly settle: () => Promise<void>;
   readonly close: () => Promise<void>;
 }
 
@@ -75,6 +101,28 @@ export async function buildTestEnvironment(): Promise<TestEnvironment> {
 
   const encryption = EncryptionService.forTestKey(4242);
   const audit = new AuditService(db, logger);
+
+  const cache = new MemoryCache();
+  const queue = new MemoryJobQueue({ logger, concurrency: 8, dispatchIntervalMs: 2 });
+  const persistence = new JobPersistence(db, logger);
+  persistence.attach(queue);
+  // Producer-side no-op consumers: queue plumbing is proven here; business
+  // handlers are proven by the worker suite.
+  queue.register(WebhookProcessJob, () => Promise.resolve());
+  queue.register(SyncStoreFullJob, () => Promise.resolve());
+  queue.register(SyncModuleJob, () => Promise.resolve());
+  queue.register(ShopifyEnsureWebhooksJob, () => Promise.resolve());
+  await queue.start();
+
+  const enqueueWebhookProcess = async (storeId: string, webhookLogId: string): Promise<void> => {
+    await persistence.enqueuePersistent(
+      queue,
+      WebhookProcessJob,
+      { storeId, webhookLogId },
+      { jobId: `webhook:${webhookLogId}` },
+    );
+  };
+
   const oauth = new ShopifyOauthService({
     db,
     encryption,
@@ -87,8 +135,29 @@ export async function buildTestEnvironment(): Promise<TestEnvironment> {
     },
     audit,
     logger,
+    afterProvision: async (storeId) => {
+      const runGroupId = `rg-${storeId.slice(0, 8)}`;
+      await persistence.enqueuePersistent(
+        queue,
+        SyncStoreFullJob,
+        { storeId, runGroupId },
+        { jobId: `sync:full:${storeId}:${runGroupId}` },
+      );
+      await persistence.enqueuePersistent(
+        queue,
+        ShopifyEnsureWebhooksJob,
+        { storeId },
+        { jobId: `webhooks:ensure:${storeId}:${runGroupId}` },
+      );
+    },
   });
-  const webhooks = new ShopifyWebhookService({ db, audit, logger, apiSecret: API_SECRET });
+  const webhooks = new ShopifyWebhookService({
+    db,
+    audit,
+    logger,
+    apiSecret: API_SECRET,
+    enqueueWebhookProcess,
+  });
   const jwt = new JwtService({ accessSecret: ACCESS_SECRET, accessTtlSeconds: 900 });
   const auth = new AuthService({
     db,
@@ -114,9 +183,30 @@ export async function buildTestEnvironment(): Promise<TestEnvironment> {
       apiV1: {
         auth: authRouter({ auth, jwt }),
         store: storeRouter({ db, jwt }),
+        sync: syncRouter({ db, jwt, queue, persistence, cache }),
+        analytics: analyticsRouter({
+          db,
+          jwt,
+          storeCacheFor: (storeId) => createStoreCache(cache, storeId, logger),
+        }),
+        products: productsRouter({ db, jwt }),
+        customers: customersRouter({ db, jwt }),
+        orders: ordersRouter({ db, jwt }),
+        inventory: inventoryRouter({ db, jwt }),
       },
     },
   });
+
+  const settle = async (): Promise<void> => {
+    for (let round = 0; round < 20; round += 1) {
+      const idle = await queue.waitForIdle(10_000);
+      if (idle) {
+        await new Promise((r) => setTimeout(r, 25));
+        if (await queue.waitForIdle(1_000)) return;
+      }
+    }
+    throw new Error("queue did not settle");
+  };
 
   return {
     app,
@@ -126,7 +216,14 @@ export async function buildTestEnvironment(): Promise<TestEnvironment> {
     encryption,
     authService: auth,
     jwtService: jwt,
-    close: testDb.close,
+    queue,
+    cache,
+    persistence,
+    settle,
+    close: async () => {
+      await queue.close();
+      await testDb.close();
+    },
   };
 }
 
@@ -187,13 +284,18 @@ export function stubShopifyHttp(overrides: {
 
     if (url.endsWith("/admin/oauth/access_token")) {
       if (body["grant_type"] === "urn:ietf:params:oauth:grant-type:token-exchange") {
+        // Identity is shop-scoped, just like real Shopify installed users —
+        // unique-email collisions across tenants must be impossible to fake.
+        const shopDomain =
+          /https:\/\/([a-z0-9][a-z0-9-]*\.myshopify\.com)/.exec(url)?.[1] ?? TEST_SHOP;
+        const handle = shopDomain.replace(".myshopify.com", "");
         return jsonResponse({
           access_token: "shput_online_token_x",
           scope: "read_products,write_products,read_orders",
           expires_in: 3600,
           associated_user: {
             id: 42,
-            email: "owner@demo-store.example",
+            email: `owner@${handle}.example`,
             first_name: "Ada",
             last_name: "Merchant",
             account_owner: overrides.accountOwner ?? true,

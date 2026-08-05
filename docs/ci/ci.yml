@@ -31,12 +31,10 @@ jobs:
       - name: TypeScript checks (P6 gate)
         run: pnpm -r run typecheck
 
-      - name: Unit tests with coverage gate
-        run: pnpm --filter @profit/api run test
-
-      - name: Coverage thresholds (P6 ≥80%)
-        run: npx vitest run --coverage
-        working-directory: apps/api
+      - name: All tests with per-package coverage gates (P6 ≥80/75)
+        # Every package runs its own vitest --coverage with threshold gates
+        # (api, worker, queue, cache, shopify, crypto, logger, types, db, sync).
+        run: pnpm -r run test
 
       - name: Build all deployables
         run: pnpm -r run build
@@ -82,3 +80,10 @@ jobs:
         run: pnpm --filter @profit/db run migrate
         env:
           DATABASE_URL: postgres://profit:profit@localhost:5432/profit_tool_ai_test
+
+      - name: BullMQ driver tests against real Redis
+        # @profit/queue's bullmq.driver suite is Redis-gated (self-skips without
+        # REDIS_URL) — this job is where it actually executes.
+        run: pnpm --filter @profit/queue run test
+        env:
+          REDIS_URL: redis://localhost:6379

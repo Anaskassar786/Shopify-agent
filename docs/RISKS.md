@@ -18,8 +18,8 @@
 2. **AI hallucinated actions (M×C).** Structured-output + Zod + DB cross-check validator; action whitelist; approval state machine; `PENDING_APPROVAL` default; full `ai_call_logs` forensics (I3/I4).
 3. **AI cost runaway (M×H).** Model tiers, pre-aggregated context, context cache, debounced triggers, per-store budgets → entitlements; per-call cost logging with alerting (P11 risk 3).
 4. **Attribution credibility (M×H).** Modeled estimates labeled; discount/UTM tags preferred; before/after cohort method documented; merchants see methodology (trust feature, P11 risk 2).
-5. **Webhook storms (H×M).** Ack<5s, enqueue, idempotent upserts, dedupe on `(topic, shopify_id)`, BullMQ concurrency caps, DLQ + replay tooling.
-6. **Shopify rate limits at 1k+ stores (M×M).** Per-store token bucket, bulk operations for initial sync, cursor checkpoints, prioritized queues.
+5. **Webhook storms (H×M).** Ack<5s, enqueue, idempotent upserts, dedupe on `(topic, shopify_webhook_id)` + durable `webhook:{logId}` job keys, BullMQ concurrency caps, DLQ + replay tooling. *(M2 delivered: durable handoff — intake only persists+enqueues; processing is retry-bounded worker work with `RECEIVED`-only dedupe guard.)*
+6. **Shopify rate limits at 1k+ stores (M×M).** Per-store token bucket, bulk operations for initial sync, cursor checkpoints, prioritized queues. *(M2 delivered: REST paginator with 429/Retry-After backoff + cost-aware GraphQL paginator that sleeps below bucket threshold; retry budget is env-tunable.)*
 7. **Durable "wait 24h" workflow steps (M×M).** Step-state in DB, delayed jobs with idempotency keys, restart-resume tests.
 8. **Migration failure in prod (L×H).** Expand/contract pattern, migration verified on staging, backup-before-migrate runbook, rollback = previous image + compatible schema.
 9. **Email deliverability/compliance (M×M).** Tracking endpoints provider-neutral, unsubscribe + CAN-SPAM enforced in Email Center, domain auth doc (SPF/DKIM/DMARC) in ops runbook.
@@ -28,7 +28,7 @@
 12. **3-day trial conversion too short (business, flagged not fixed).** Instrument D0–D3 funnel (M5) to produce data for a plan-length decision; plan duration is config, not code.
 
 ## Operational blockers (need owner action)
-- **CI not yet active on GitHub:** the sandbox GitHub App lacks the `workflows` permission, so `.github/workflows/ci.yml` cannot be pushed from here. The complete pipeline is committed at `docs/ci/ci.yml` — either grant the `workflows` permission in the GitHub connection settings, or add the file as `.github/workflows/ci.yml` manually via the GitHub UI. Until then, the gates run locally (`pnpm -r run typecheck && npx vitest run --coverage` in apps/api && `pnpm -r run build`).
+- **CI not yet active on GitHub:** the sandbox GitHub App lacks the `workflows` permission, so `.github/workflows/ci.yml` cannot be pushed from here. The complete pipeline is committed at `docs/ci/ci.yml` — either grant the `workflows` permission in the GitHub connection settings, or add the file as `.github/workflows/ci.yml` manually via the GitHub UI. Until then, the gates run locally (`pnpm -r run typecheck && pnpm -r run test && pnpm -r run build` + `pnpm --filter @profit/db run generate`).
 
 ## Open questions → decisions taken (per Part-12 autonomy grant; reversible)
 - Queue/cache tech → **Redis+BullMQ** (spec-mandated BullMQ).

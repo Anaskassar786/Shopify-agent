@@ -1,6 +1,6 @@
 import type { RequestHandler } from "express";
 import { getRequestContext } from "../lib/context/request-context";
-import type { Logger } from "../lib/logger";
+import type { Logger } from "@profit/logger";
 
 /**
  * Request/response log line per completed request (P5). Duration measured with

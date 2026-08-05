@@ -3,10 +3,10 @@ import { z } from "zod";
 import { getRequestContext } from "../../lib/context/request-context";
 import { successEnvelope } from "../../lib/http/envelope";
 import { ValidationError } from "../../lib/errors";
-import { InvalidShopDomainError } from "../../lib/shopify/shop-domain";
+import { InvalidShopDomainError } from "@profit/shopify";
 import type { ShopifyOauthService } from "./oauth.service";
 import type { ShopifyWebhookService } from "./webhooks/webhook.service";
-import type { Logger } from "../../lib/logger";
+import type { Logger } from "@profit/logger";
 
 /**
  * Shopify surface:

@@ -3,11 +3,11 @@ import type { ProfitDb } from "@profit/db";
 import { stores, webhookLogs } from "@profit/db";
 import { WebhookStatus } from "@profit/types";
 import { AuthenticationError, ValidationError } from "../../../lib/errors";
-import type { Logger } from "../../../lib/logger";
-import { verifyWebhookHmac } from "../../../lib/shopify/hmac";
-import { isShopDomain } from "../../../lib/shopify/shop-domain";
+import type { Logger } from "@profit/logger";
+import { verifyWebhookHmac } from "@profit/shopify";
+import { isShopDomain } from "@profit/shopify";
 import type { AuditService } from "../../audit/audit.service";
-import { handlerForTopic } from "./registry";
+import { lookupTopic } from "./registry";
 
 /**
  * Webhook intake (P2 pipeline, verbatim): validate HMAC → verify store → store
@@ -39,6 +39,12 @@ export interface WebhookServiceDeps {
   readonly audit: AuditService;
   readonly logger: Logger;
   readonly apiSecret: string;
+  /**
+   * Durable handoff for business topics (M2 data plane): intake enqueues the
+   * worker-side "webhook.process" job instead of processing inline. Platform /
+   * compliance topics always stay inline regardless of this hook's presence.
+   */
+  readonly enqueueWebhookProcess?: ((storeId: string, webhookLogId: string) => Promise<void>) | undefined;
 }
 
 export class ShopifyWebhookService {
@@ -125,8 +131,22 @@ export class ShopifyWebhookService {
       return { outcome: "duplicate", topic: topicHeader };
     }
 
-    const handler = handlerForTopic(topicHeader);
-    if (handler === null) {
+    const { entry, inlineHandler, durable } = lookupTopic(topicHeader);
+
+    // Durable business delivery: the worker applies the effect with retries;
+    // the RECEIVED row is the handoff receipt (M2 sync engine pipeline).
+    if (durable && this.deps.enqueueWebhookProcess !== undefined) {
+      await this.deps.enqueueWebhookProcess(store.id, logRow.id);
+      return { outcome: "processed", topic: topicHeader };
+    }
+    if (durable) {
+      logger.warn(
+        { storeId: store.id, topic: topicHeader },
+        "webhook.queue_unavailable_inline_fallback",
+      );
+    }
+
+    if (entry === null || inlineHandler === null) {
       await db
         .update(webhookLogs)
         .set({ status: WebhookStatus.Processed, processedAt: new Date() })
@@ -135,7 +155,7 @@ export class ShopifyWebhookService {
     }
 
     try {
-      await handler({
+      await inlineHandler({
         db,
         audit,
         store: { id: store.id, shopDomain: store.shopDomain },
