@@ -27,6 +27,9 @@
 11. **PII to AI providers (L×C, compliance).** Context Builder minimization policy; banned fields list enforced in code review + tests; DPA-tracked providers.
 12. **3-day trial conversion too short (business, flagged not fixed).** Instrument D0–D3 funnel (M5) to produce data for a plan-length decision; plan duration is config, not code.
 
+## Operational blockers (need owner action)
+- **CI not yet active on GitHub:** the sandbox GitHub App lacks the `workflows` permission, so `.github/workflows/ci.yml` cannot be pushed from here. The complete pipeline is committed at `docs/ci/ci.yml` — either grant the `workflows` permission in the GitHub connection settings, or add the file as `.github/workflows/ci.yml` manually via the GitHub UI. Until then, the gates run locally (`pnpm -r run typecheck && npx vitest run --coverage` in apps/api && `pnpm -r run build`).
+
 ## Open questions → decisions taken (per Part-12 autonomy grant; reversible)
 - Queue/cache tech → **Redis+BullMQ** (spec-mandated BullMQ).
 - Object storage provider → **S3 interface, provider chosen at deploy** (Railway volumes acceptable for staging only).
