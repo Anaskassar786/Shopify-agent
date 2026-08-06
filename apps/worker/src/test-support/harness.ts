@@ -4,10 +4,22 @@ import { Writable } from "node:stream";
 import { MemoryCache, MemoryPubSub } from "@profit/cache";
 import { EncryptionService } from "@profit/crypto";
 import type { DbClient, ProfitDb } from "@profit/db";
-import { shopifySessions, stores, webhookLogs } from "@profit/db";
+import {
+  plans,
+  seedPlatformCatalogs,
+  shopifySessions,
+  stores,
+  subscriptions,
+  webhookLogs,
+} from "@profit/db";
 import { createTestDatabase } from "@profit/db/testing";
 import { createLogger, type Logger } from "@profit/logger";
 import { JobPersistence, MemoryJobQueue } from "@profit/queue";
+import {
+  PlanCode,
+  SubscriptionStatus,
+  type BillingInterval,
+} from "@profit/types";
 import { loadWorkerEnv, type WorkerEnv } from "../config/env";
 import { registerWorkerJobs } from "../server";
 import type { AiProvider, EmailSender } from "@profit/ai";
@@ -22,6 +34,21 @@ import type { WorkerDeps } from "../handlers/deps";
 
 export const WORKER_TEST_SHOP = "worker-store.myshopify.com";
 export const WORKER_TEST_TOKEN = "fixture_worker_offline_token";
+
+const DAY_MS = 24 * 60 * 60_000;
+
+export interface SeedHarnessSubscriptionOptions {
+  readonly planCode?: PlanCode;
+  readonly status?: SubscriptionStatus;
+  readonly shopifyChargeId?: string | null;
+  readonly billingInterval?: BillingInterval | null;
+  readonly trialEndsAt?: Date | null;
+  readonly graceEndsAt?: Date | null;
+  readonly currentPeriodStart?: Date | null;
+  readonly currentPeriodEnd?: Date | null;
+  readonly cancelledAt?: Date | null;
+  readonly createdAt?: Date;
+}
 
 export interface WorkerTestEnvironment {
   readonly db: ProfitDb;
@@ -45,6 +72,47 @@ export interface WorkerHarnessOptions {
   /** AI plane overrides — default null exercises the failsafe path. */
   readonly aiProvider?: AiProvider | null;
   readonly emailSender?: EmailSender | null;
+}
+
+/**
+ * M5 gate fixture: give a store a subscription row so the entitlement gates
+ * (nightly-tick fan-out, email-execution preflight, execution metering) pass.
+ * Production installs ALWAYS carry a trial row — OAuth provisioning creates it
+ * inside the install transaction, so a store without one is intentionally
+ * revenue-blocked; suites exercising revenue paths must seed this.
+ * Defaults to a fresh STARTER trial (3 days remaining).
+ */
+export async function seedHarnessSubscription(
+  db: ProfitDb,
+  storeId: string,
+  options: SeedHarnessSubscriptionOptions = {},
+): Promise<string> {
+  const status = options.status ?? SubscriptionStatus.Trialing;
+  const planCode = options.planCode ?? PlanCode.Starter;
+  await seedPlatformCatalogs(db);
+  const planRows = await db.select({ id: plans.id, code: plans.code }).from(plans);
+  const plan = planRows.find((row) => row.code === planCode);
+  if (plan === undefined) throw new Error(`plan not seeded: ${planCode}`);
+  const trialDefault = status === SubscriptionStatus.Trialing || status === SubscriptionStatus.ChargePending
+    ? new Date(Date.now() + 3 * DAY_MS)
+    : null;
+  const rows = await db
+    .insert(subscriptions)
+    .values({
+      storeId,
+      planId: plan.id,
+      status,
+      shopifyChargeId: options.shopifyChargeId ?? null,
+      billingInterval: options.billingInterval ?? null,
+      trialEndsAt: options.trialEndsAt !== undefined ? options.trialEndsAt : trialDefault,
+      graceEndsAt: options.graceEndsAt ?? null,
+      currentPeriodStart: options.currentPeriodStart ?? null,
+      currentPeriodEnd: options.currentPeriodEnd ?? null,
+      cancelledAt: options.cancelledAt ?? null,
+      ...(options.createdAt !== undefined ? { createdAt: options.createdAt } : {}),
+    })
+    .returning({ id: subscriptions.id });
+  return rows[0]!.id;
 }
 
 export function jsonResponse(payload: unknown, init: { status?: number; headers?: Record<string, string> } = {}): Response {

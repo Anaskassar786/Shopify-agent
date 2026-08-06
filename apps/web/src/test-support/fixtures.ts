@@ -1,7 +1,12 @@
 import type {
+  AdminAiUsageRow,
+  AdminMerchantRow,
+  AdminOverviewResponse,
   AiOverviewResponse,
   AnalyticsSummaryResponse,
   AuditLogRow,
+  BillingEventRow,
+  BillingOverviewResponse,
   AutomationOverviewResponse,
   CustomerDetailResponse,
   CustomerRow,
@@ -10,10 +15,13 @@ import type {
   NotificationRow,
   OrderDetailResponse,
   OrderRow,
+  PlanRow,
+  PlansCatalogResponse,
   ProductDetailRow,
   ProductRow,
   RecommendationDetail,
   RecommendationRow,
+  RoiReportResponse,
   StoreResponse,
   SubscriptionResponse,
   SyncHistoryRow,
@@ -29,6 +37,8 @@ export const STORE_ID = "22222222-2222-4222-8222-222222222222";
 export const PRODUCT_ID = "33333333-3333-4333-8333-333333333333";
 export const CUSTOMER_ID = "44444444-4444-4444-8444-444444444444";
 export const ORDER_ID = "55555555-5555-4555-8555-555555555555";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function storeResponse(overrides: {
   readonly onboardingCompletedAt?: string | null;
@@ -82,10 +92,14 @@ export function subscriptionResponse(): SubscriptionResponse {
       code: "GROWTH",
       name: "Growth",
       description: "For scaling stores",
-      monthlyPriceCents: 4900,
-      yearlyPriceCents: 49000,
+      monthlyPriceCents: 7900,
+      yearlyPriceCents: 79000,
       trialDays: 3,
-      entitlements: {},
+      isActive: true,
+      entitlements: {
+        capabilities: ["analytics", "ai-decisions", "automation"],
+        quotas: { aiCalls: 2000, emails: 10_000, sms: 0, automationRuns: 1000, seats: 5, stores: 1 },
+      },
     },
   };
 }
@@ -549,3 +563,249 @@ export function automationOverviewResponse(overrides: Partial<AutomationOverview
     ...overrides,
   };
 }
+
+/* ── M5 billing / growth fixtures ────────────────────────────────────────── */
+
+export function planFixture(overrides: Partial<PlanRow> = {}): PlanRow {
+  return {
+    id: "plan-growth",
+    code: "GROWTH",
+    name: "Growth",
+    description: "For scaling stores",
+    monthlyPriceCents: 7900,
+    yearlyPriceCents: 79000,
+    trialDays: 3,
+    isActive: true,
+    entitlements: {
+      capabilities: ["analytics", "ai-decisions", "automation"],
+      quotas: { aiCalls: 2000, emails: 10_000, sms: 0, automationRuns: 1000, seats: 5, stores: 1 },
+    },
+    ...overrides,
+  };
+}
+
+export function plansCatalogFixture(currentPlanId: string | null = "plan-starter"): PlansCatalogResponse {
+  return {
+    currentPlanId,
+    plans: [
+      planFixture({
+        id: "plan-starter",
+        code: "STARTER",
+        name: "Starter",
+        description: "For new stores finding their rhythm",
+        monthlyPriceCents: 2900,
+        yearlyPriceCents: 29000,
+        entitlements: {
+          capabilities: ["analytics", "ai-decisions"],
+          quotas: { aiCalls: 100, emails: 500, sms: 0, automationRuns: 20, seats: 2, stores: 1 },
+        },
+      }),
+      planFixture(),
+      planFixture({
+        id: "plan-professional",
+        code: "PROFESSIONAL",
+        name: "Professional",
+        description: "For stores scaling decision volume",
+        monthlyPriceCents: 24900,
+        yearlyPriceCents: 249000,
+        entitlements: {
+          capabilities: ["analytics", "ai-decisions", "automation", "priority-support"],
+          quotas: { aiCalls: 8000, emails: 50_000, sms: 0, automationRuns: 5000, seats: 10, stores: 2 },
+        },
+      }),
+      planFixture({
+        id: "plan-enterprise",
+        code: "ENTERPRISE",
+        name: "Enterprise",
+        description: "For fleets and agencies",
+        monthlyPriceCents: 99900,
+        yearlyPriceCents: 999000,
+        trialDays: 14,
+        entitlements: {
+          capabilities: ["analytics", "ai-decisions", "automation", "priority-support", "sla"],
+          quotas: { aiCalls: 50_000, emails: 250_000, sms: 0, automationRuns: 25_000, seats: 50, stores: 10 },
+        },
+      }),
+    ],
+  };
+}
+
+export function billingOverviewFixture(
+  overrides: {
+    readonly status?: string;
+    readonly access?: BillingOverviewResponse["access"];
+    readonly withPlan?: boolean;
+  } = {},
+): BillingOverviewResponse {
+  const withPlan = overrides.withPlan ?? true;
+  if (!withPlan) {
+    return {
+      subscription: null,
+      plan: null,
+      usage: {
+        window: { from: "2026-08-05T00:00:00.000Z", to: "2026-08-06T00:00:00.000Z" },
+        meters: [
+          { meter: "AI_CALLS", used: 0, limit: 0, percentUsed: null },
+          { meter: "EMAILS_SENT", used: 0, limit: 0, percentUsed: null },
+          { meter: "SMS_SENT", used: 0, limit: 0, percentUsed: null },
+          { meter: "AUTOMATION_RUNS", used: 0, limit: 0, percentUsed: null },
+        ],
+        entitlements: null,
+        status: null,
+      },
+      access: { revenueActionsAllowed: false, blockedReason: "Start your free trial to unlock revenue actions" },
+    };
+  }
+  const status = overrides.status ?? "TRIALING";
+  return {
+    subscription: {
+      id: "sub-1",
+      status,
+      trialEndsAt: new Date(Date.now() + 2 * 24 * 3600 * 1000).toISOString(),
+      currentPeriodStart: null,
+      currentPeriodEnd: "2026-09-05T10:00:00.000Z",
+      planId: "plan-growth",
+      shopifyChargeId: null,
+      billingInterval: null,
+      graceEndsAt: null,
+      cancelledAt: null,
+    },
+    plan: planFixture(),
+    usage: {
+      window: { from: "2026-08-05T10:00:00.000Z", to: "2026-09-05T10:00:00.000Z" },
+      meters: [
+        { meter: "AI_CALLS", used: 148, limit: 2000, percentUsed: 7 },
+        { meter: "EMAILS_SENT", used: 812, limit: 10_000, percentUsed: 8 },
+        { meter: "SMS_SENT", used: 0, limit: 0, percentUsed: null },
+        { meter: "AUTOMATION_RUNS", used: 96, limit: 1000, percentUsed: 10 },
+      ],
+      entitlements: planFixture().entitlements,
+      status,
+    },
+    access:
+      overrides.access ??
+      (status === "TRIALING"
+        ? { revenueActionsAllowed: true, blockedReason: null }
+        : { revenueActionsAllowed: false, blockedReason: "Your trial has ended. Choose a plan to continue." }),
+  };
+}
+
+export const BILLING_HISTORY: readonly BillingEventRow[] = [
+  {
+    id: "billevt-3",
+    storeId: STORE_ID,
+    type: "CHARGE_ACCEPTED",
+    planCode: "GROWTH",
+    chargeId: "900101",
+    amountCents: 7900,
+    interval: "MONTHLY",
+    fromStatus: "CHARGE_PENDING",
+    toStatus: "ACTIVE",
+    metadata: { source: "callback" },
+    createdAt: "2026-08-05T11:20:00.000Z",
+  },
+  {
+    id: "billevt-2",
+    storeId: STORE_ID,
+    type: "CHARGE_CREATED",
+    planCode: "GROWTH",
+    chargeId: "900101",
+    amountCents: 7900,
+    interval: "MONTHLY",
+    fromStatus: "TRIALING",
+    toStatus: "CHARGE_PENDING",
+    metadata: {},
+    createdAt: "2026-08-05T11:05:00.000Z",
+  },
+  {
+    id: "billevt-1",
+    storeId: STORE_ID,
+    type: "TRIAL_STARTED",
+    planCode: "GROWTH",
+    chargeId: null,
+    amountCents: null,
+    interval: null,
+    fromStatus: null,
+    toStatus: "TRIALING",
+    metadata: {},
+    createdAt: "2026-08-03T09:00:00.000Z",
+  },
+];
+
+export function roiReportFixture(overrides: Partial<RoiReportResponse> = {}): RoiReportResponse {
+  return {
+    windowDays: 30,
+    from: "2026-07-07T00:00:00.000Z",
+    to: "2026-08-06T00:00:00.000Z",
+    outcomes: {
+      attributedRevenueCents: 184_500,
+      attributedOrdersCount: 37,
+      measuredRecommendations: 9,
+    },
+    pipeline: {
+      openRecommendations: 6,
+      openEstimatedRevenueCents: 420_000,
+      highPriorityOpen: 2,
+    },
+    cost: { micros: 3_250_000, calls: 214 },
+    roiMultiple: 56.8,
+    acceptanceRatePct: 64.3,
+    ...overrides,
+  };
+}
+
+/* ── M5 admin fixtures ───────────────────────────────────────────────────── */
+
+export function adminOverviewFixture(): AdminOverviewResponse {
+  return {
+    dashboard: {
+      merchants: { total: 41, active: 36, uninstalled: 5 },
+      subscriptions: { trialing: 12, active: 18, chargePending: 2, trialExpired: 3, cancelled: 4, suspended: 1 },
+      modeledMrrCents: 1_820_000,
+      modeledArrCents: 21_840_000,
+      ai: { runsLast7d: 96, costMicrosLast7d: 84_000_000, tokensLast7d: 12_400_000 },
+      system: { jobsRunning: 3, jobsPending: 7, jobsFailed: 1, deadJobs: 0 },
+    },
+    funnel: [
+      { kind: "STORE_CONNECTED", stores: 41, conversionFromPreviousPct: null },
+      { kind: "FIRST_SYNC_COMPLETED", stores: 38, conversionFromPreviousPct: 92.7 },
+      { kind: "FIRST_AI_RUN_COMPLETED", stores: 30, conversionFromPreviousPct: 78.9 },
+      { kind: "FIRST_AI_INSIGHT_VIEWED", stores: 27, conversionFromPreviousPct: 90 },
+      { kind: "FIRST_RECOMMENDATION_APPROVED", stores: 19, conversionFromPreviousPct: 70.4 },
+      { kind: "FIRST_AUTOMATION_ENABLED", stores: 11, conversionFromPreviousPct: 57.9 },
+      { kind: "PAID_SUBSCRIPTION_STARTED", stores: 18, conversionFromPreviousPct: 163.6 },
+    ],
+  };
+}
+
+export const ADMIN_MERCHANTS: readonly AdminMerchantRow[] = [
+  {
+    storeId: STORE_ID,
+    shopDomain: "moradabad-gems.myshopify.com",
+    name: "Moradabad Gems",
+    installedAt: "2026-07-20T10:00:00.000Z",
+    planCode: "GROWTH",
+    subscriptionStatus: "ACTIVE",
+    trialEndsAt: null,
+    attributedRevenueCents: 184_500,
+    aiCostMicrosLast30d: 3_250_000,
+    lastActivityAt: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
+  },
+  {
+    storeId: "77777777-7777-4777-8777-777777777777",
+    shopDomain: "brass-city-lights.myshopify.com",
+    name: "Brass City Lights",
+    installedAt: "2026-08-04T08:30:00.000Z",
+    planCode: "STARTER",
+    subscriptionStatus: "TRIALING",
+    trialEndsAt: new Date(Date.now() + DAY_MS).toISOString(),
+    attributedRevenueCents: 0,
+    aiCostMicrosLast30d: 410_000,
+    lastActivityAt: new Date(Date.now() - 26 * 3600 * 1000).toISOString(),
+  },
+];
+
+export const ADMIN_AI_USAGE: readonly AdminAiUsageRow[] = [
+  { storeId: STORE_ID, shopDomain: "moradabad-gems.myshopify.com", calls: 214, tokens: 2_180_000, costMicros: 3_250_000 },
+  { storeId: "77777777-7777-4777-8777-777777777777", shopDomain: "brass-city-lights.myshopify.com", calls: 26, tokens: 310_000, costMicros: 410_000 },
+];

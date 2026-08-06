@@ -1,6 +1,9 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { BadgeTone } from "@profit/ui";
 import { ProgressBar } from "@profit/ui";
+import { ApiError } from "../lib/api-client";
+import { isEntitlementError } from "../lib/entitlement";
+import { UpgradeNotice } from "../components/UpgradeNotice";
 
 /**
  * Shared AI-plane display contracts (M4): status/priority tones, confidence
@@ -82,4 +85,34 @@ export function ConfidenceMeter({ value, tier }: { readonly value: number; reado
       <ProgressBar value={value} tone={tone} />
     </div>
   );
+}
+
+/* ─── Entitlement-denial UX (M5) ─────────────────────────────────────────── */
+
+/**
+ * Shared hook for AI-plane pages: turns UPGRADE_REQUIRED / QUOTA_EXCEEDED
+ * mutation refusals into an inline upgrade CTA (a denial is a billing
+ * conversation, not a crash); every other error falls through to the caller's
+ * ordinary toast copy. One page-level instance renders `notice` anywhere.
+ */
+export function useEntitlementNotice(): {
+  readonly notice: ReactNode;
+  readonly handleMutationError: (fallback: (error: ApiError) => void) => (error: ApiError) => void;
+} {
+  const [message, setMessage] = useState<string | null>(null);
+  return {
+    notice:
+      message === null ? null : (
+        <UpgradeNotice message={message} onDismiss={() => setMessage(null)} />
+      ),
+    handleMutationError:
+      (fallback) =>
+      (error) => {
+        if (isEntitlementError(error)) {
+          setMessage(error.message);
+          return;
+        }
+        fallback(error);
+      },
+  };
 }

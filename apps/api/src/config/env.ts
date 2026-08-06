@@ -43,6 +43,17 @@ const envSchema = z
     ENCRYPTION_KEY_PREVIOUS: optionalSecret,
 
     SHOPIFY_BILLING_PLAN: z.string().min(1).optional(),
+    /** M5: dev-store charges MUST be flagged test or Shopify rejects them. */
+    SHOPIFY_BILLING_TEST: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
+    /**
+     * M5 super admin v1: standalone operator key for /api/v1/admin/* (memory-only,
+     * constant-time compared). Absent ⇒ admin API reports itself unavailable (503),
+     * never silently open.
+     */
+    PLATFORM_ADMIN_KEY: optionalSecret,
 
     /** Embedded web app bundle location (M3). Default: apps/web/dist. */
     WEB_DIST_DIR: z.string().min(1).optional(),

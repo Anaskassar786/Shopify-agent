@@ -5,9 +5,19 @@ import { Router } from "express";
 import { createCache, createPubSub, createStoreCache } from "@profit/cache";
 import { NotificationService } from "@profit/notifications";
 import { createDbClient, probeDbConnection, type DbClient } from "@profit/db";
-import { Environment } from "@profit/types";
+import { EngagementEventKind, Environment } from "@profit/types";
 import { createJobQueue, JobPersistence } from "@profit/queue";
-import { ShopifyEnsureWebhooksJob, SyncStoreFullJob, WebhookProcessJob } from "@profit/sync";
+import {
+  resolveStoreAdminContext,
+  ShopifyEnsureWebhooksJob,
+  SyncStoreFullJob,
+  WebhookProcessJob,
+} from "@profit/sync";
+import {
+  EngagementService,
+  ShopifyBillingProvider,
+  type BillingChargeProvider,
+} from "@profit/billing";
 import { createApp, type AppRouters } from "./app";
 import { loadEnv, requireEnv, type Env } from "./config/env";
 import { EncryptionService } from "@profit/crypto";
@@ -25,6 +35,9 @@ import { syncRouter } from "./modules/sync/sync.router";
 import { analyticsRouter } from "./modules/analytics/analytics.router";
 import { auditLogsRouter } from "./modules/audit/audit.router";
 import { subscriptionRouter } from "./modules/billing/subscription.router";
+import { billingRouter } from "./modules/billing/billing.router";
+import { engagementRouter } from "./modules/billing/engagement.router";
+import { adminRouter } from "./modules/admin/admin.router";
 import { notificationsRouter } from "./modules/notifications/notifications.router";
 import { recommendationsRouter } from "./modules/ai/recommendations.router";
 import { aiRouter } from "./modules/ai/ai.router";
@@ -229,6 +242,12 @@ function buildRouters(
       } catch (error) {
         logger.error({ err: error, storeId }, "shopify.provision_fanout.failed");
       }
+      // M5 growth funnel step 1 (deduped per store): install = store connected.
+      try {
+        await new EngagementService(db.db).emit({ storeId, kind: EngagementEventKind.StoreConnected });
+      } catch (error) {
+        logger.warn({ err: error, storeId }, "engagement.store_connected.failed");
+      }
     },
   });
   const webhooks = new ShopifyWebhookService({
@@ -256,11 +275,30 @@ function buildRouters(
     refreshTtlSeconds: env.JWT_REFRESH_TTL_SECONDS,
   });
 
+  // M5: ONE notification service shared by the notifications API and the
+  // billing router (charge lifecycle alerts land in the same drawer).
+  const notifications = new NotificationService(db.db, infra.pubsub);
+
+  /**
+   * M5 charge provider factory: resolves the store's OFFLINE token through the
+   * established sync helper. Unavailability is TYPED (null) — routers answer
+   * 503 BILLING_UNAVAILABLE, never a simulated charge.
+   */
+  const providerFor = async (storeId: string): Promise<BillingChargeProvider | null> => {
+    try {
+      const admin = await resolveStoreAdminContext(db.db, encryption, storeId);
+      return new ShopifyBillingProvider(admin.shopDomain, admin.accessToken, env.SHOPIFY_API_VERSION);
+    } catch (error) {
+      logger.warn({ err: error, storeId }, "billing.provider.unavailable");
+      return null;
+    }
+  };
+
   return {
     shopify: shopifyRouter({ oauth, webhooks, logger }),
     apiV1: {
       auth: authRouter({ auth, jwt }),
-      store: storeRouter({ db: db.db, jwt, audit }),
+      store: storeRouter({ db: db.db, jwt, audit, logger }),
       sync: syncRouter({ db: db.db, jwt, queue, persistence, cache }),
       analytics: analyticsRouter({
         db: db.db,
@@ -271,11 +309,7 @@ function buildRouters(
       customers: customersRouter({ db: db.db, jwt }),
       orders: ordersRouter({ db: db.db, jwt }),
       inventory: inventoryRouter({ db: db.db, jwt }),
-      notifications: notificationsRouter({
-        db: db.db,
-        jwt,
-        notifications: new NotificationService(db.db, infra.pubsub),
-      }),
+      notifications: notificationsRouter({ db: db.db, jwt, notifications }),
       search: searchRouter({ db: db.db, jwt }),
       auditLogs: auditLogsRouter({ db: db.db, jwt }),
       subscription: subscriptionRouter({
@@ -285,9 +319,22 @@ function buildRouters(
         logger,
         defaultPlanCode: env.SHOPIFY_BILLING_PLAN,
       }),
-      recommendations: recommendationsRouter({ db: db.db, jwt, queue, persistence, audit }),
+      recommendations: recommendationsRouter({ db: db.db, jwt, queue, persistence, audit, logger }),
       ai: aiRouter({ db: db.db, jwt }),
       automation: automationRouter({ db: db.db, jwt }),
+      billing: billingRouter({
+        db: db.db,
+        jwt,
+        audit,
+        notifications,
+        logger,
+        providerFor,
+        billingTest: env.SHOPIFY_BILLING_TEST,
+        appUrl: requireEnv(env, "SHOPIFY_APP_URL"),
+        shopifyApiKey: env.SHOPIFY_API_KEY,
+      }),
+      engagement: engagementRouter({ db: db.db, jwt }),
+      admin: adminRouter({ db: db.db, platformAdminKey: env.PLATFORM_ADMIN_KEY, audit }),
     },
   };
 }
@@ -310,5 +357,8 @@ function stubApiV1(): AppRouters["apiV1"] {
     recommendations: Router(),
     ai: Router(),
     automation: Router(),
+    billing: Router(),
+    engagement: Router(),
+    admin: Router(),
   };
 }

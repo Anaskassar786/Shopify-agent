@@ -12,6 +12,7 @@ import {
 } from "@profit/db";
 import type { StoreCache } from "@profit/cache";
 import { CACHE_TTL } from "@profit/cache";
+import { ROI_WINDOWS_DAYS, RoiReportService, type RoiWindowDays } from "@profit/ai";
 import { requireActiveStore, requireAppAuth, requirePermission } from "../../middleware/auth.middleware";
 import { getRequestContext } from "../../lib/context/request-context";
 import { successEnvelope } from "../../lib/http/envelope";
@@ -53,6 +54,30 @@ export interface AnalyticsRouterDeps {
 export function analyticsRouter(deps: AnalyticsRouterDeps): ExpressRouter {
   const router = Router();
   router.use(requireAppAuth(deps.jwt), requireActiveStore(deps.db));
+
+  /**
+   * M5 ROI read-model (P11 ROI reporting): measured attribution vs metered AI
+   * cost + live open pipeline. Served uncached — it is the value proof on the
+   * Billing page, where stale numbers erode exactly the trust it builds.
+   */
+  router.get("/roi", requirePermission("analytics:read"), async (req, res, next) => {
+    try {
+      if (req.appAuth === undefined) throw new Error("auth context missing after guard");
+      const raw = typeof req.query["windowDays"] === "string" ? Number(req.query["windowDays"]) : 30;
+      if (!ROI_WINDOWS_DAYS.includes(raw as RoiWindowDays)) {
+        throw new ValidationError("invalid window", [
+          { code: "VALIDATION_FAILED", message: "windowDays must be 30 or 90", field: "windowDays" },
+        ]);
+      }
+      const report = await new RoiReportService(deps.db).report(
+        req.appAuth.storeId,
+        raw as RoiWindowDays,
+      );
+      res.status(200).json(successEnvelope(getRequestContext(), report));
+    } catch (error) {
+      next(error);
+    }
+  });
 
   router.get("/summary", requirePermission("analytics:read"), async (req, res, next) => {
     try {

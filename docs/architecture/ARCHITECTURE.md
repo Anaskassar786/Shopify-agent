@@ -137,11 +137,13 @@ packages/ai  (M4 as-built — shared by api (reads/approves) and worker (runs/ex
 - Workflow definitions = versioned DAG JSON; `workflow worker` executes with durable step-state in `automation_jobs` (survives restarts for "wait 24h" steps); compensation steps for partial failures.
 - Execution preflight: re-check approval, re-check plan entitlements, re-check confidence — stale approvals never auto-run (I3).
 
-### 4.7 Billing & Entitlements
-- Shopify Billing API (managed pricing compatible): plans as **data** (`plans` + JSON entitlement matrix), usage meters in `usage_records` (ai_calls, emails, sms, automation_runs, seats, stores).
-- Middleware gate: `entitlement.check(storeId, capability|quota)` — plan defaults, per-merchant overrides (support tools, add-ons, AI credits).
-- Trial engine: day-partitioned lifecycle jobs (Day 0/1/2/3 prompts + emails), grace period → `suspended`.
-- Attribution: discount-usage tags, draft-order tags, campaign UTM → `merchant_actions` ↔ `revenue_metrics` join; modeled estimates labeled as modeled.
+### 4.7 Billing & Entitlements *(as built at M5 — `packages/billing`)*
+- Shopify Billing API (managed pricing compatible): plans as **data** (`plans` + JSON entitlement matrix), usage meters converging into `usage_records` (ai_calls, emails, sms, automation_runs, seats, stores) by hourly rollup (`(store,meter,day)` upsert).
+- **One gate, `evaluateAccess`**: TRIALING · CHARGE_PENDING(horizon) · ACTIVE · PAST_DUE(grace) · CANCELLED(≤periodEnd) ⇒ allowed. Enforcement points: API meter guard (`403 UPGRADE_REQUIRED`/`QUOTA_EXCEEDED`), worker scheduled-AI fan-out skip, email-execution preflight (terminal FAILED + notify + audit). Churn nudges exclude blocked stores.
+- Charges: `POST /billing/subscribe` → Shopify decision screen (remaining trial days preserved) → **public callback re-reads the charge from the live API** (URL data never trusted) → daily reconcile sweep converges drift (Shopify sends no billing webhooks — pending >7d auto-declines, vanished ACTIVE charges → CANCELLED).
+- Trial engine: hourly `billing.trial-tick` — D1/D2/D3 nudges (BSP templates, ledger-deduped), fresh-expired → `TRIAL_EXPIRED` (+2d grace) → `SUSPENDED`. Install seeds the `TRIAL_STARTED` ledger row in the OAuth provisioning transaction.
+- Ledgers: `billing_events` (append-only, same-tx as every transition) and `engagement_events` (activation funnel, 7 milestones, partial-unique deduped per store). `invoices`/`payments` deliberately NOT tables — Shopify owns invoicing; the platform owns the causal trail (M5 amendment 1).
+- Cross-tenant analytics (`GrowthAnalyticsService`) run owner-role by design and are reachable ONLY from the key-gated `/api/v1/admin/*` read-only surface (every request audit-logged).
 
 ### 4.8 Frontend (apps/web)
 - React 19, Vite, React Router, TanStack Query, Tailwind v4 (tokens from `packages/ui`), Lucide. *(M3 as-built deviations from the plan, per rule 6: **hand-rolled SVG charts instead of Recharts** — exact token colors, ~1.6 KB chunk, deterministic math, no 400 KB chart lib; **no React-Hook-Form/Framer Motion yet** — forms are one-field controlled inputs where RHF would be ceremony; both remain addable without rewrites if M4–M6 forms grow.)*
@@ -201,3 +203,7 @@ Coverage target ≥80% on services; `no explicit any` enforced by lint rule.
 13. **M4: AI engine as `packages/ai`** (shared by api+worker, same precedent as `packages/sync`), **Gemini over raw `fetch`** (JSON-mode + repair + precise micro$ costing; SDK invariant I1 intact via the port), **numbers owned by deterministic rules** (anti-hallucination by construction, not by prompt instruction).
 14. **M4: 8th sync module CHECKOUTS** + `checkouts/create|update` webhooks (20 business topics) so cart recovery uses real abandoned-checkout data and attribution can join by checkout token / discount code.
 15. **M4: `ai_runs` completed-write-only** (durable `background_jobs` is the live-progress mirror), **`ADVISORY` action type** (record+notify, executes inline), **automation preferences via `PATCH /store/settings`** nested-merge (one write path for merchant-controlled behavior).
+16. **M5: `billing_events` ledger supersedes `invoices`/`payments` tables** — Shopify owns invoicing; the platform keeps the causal trail and links out (zero drift surface).
+17. **M5: usage buckets are convergent** (`(store,meter,day)` upsert), not append-only — O(1) reads, free re-runs, late data rewrites its own bucket.
+18. **M5: admin auth is `X-Platform-Admin-Key`, not a user role** — cross-tenant observability does not belong inside tenant RBAC; key in env + middleware + full audit is the minimal honest boundary (operator identity + step-up lands with M6 write actions).
+19. **M5: entitlement denials at the worker are terminal, not retries** — email-execution preflight failure marks the execution FAILED with merchant notification + `ENTITLEMENT_DENIED` audit (a retry loop against a quota denial is a cost bug, not reliability).

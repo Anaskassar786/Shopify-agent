@@ -2,6 +2,8 @@ import { Router, type Router as ExpressRouter } from "express";
 import { eq } from "@profit/db";
 import type { ProfitDb } from "@profit/db";
 import { storeSettings, stores, subscriptions, withStoreScope } from "@profit/db";
+import { EngagementService } from "@profit/billing";
+import { EngagementEventKind } from "@profit/types";
 import { z } from "zod";
 import { getRequestContext } from "../../lib/context/request-context";
 import { NotFoundError, ValidationError } from "../../lib/errors";
@@ -13,6 +15,7 @@ import {
 } from "../../middleware/auth.middleware";
 import type { JwtService } from "../auth/jwt.service";
 import type { AuditService } from "../audit/audit.service";
+import type { Logger } from "@profit/logger";
 
 /**
  * /api/v1/store (P2). Beyond serving the settings screen, this endpoint is the
@@ -74,6 +77,7 @@ export function storeRouter(deps: {
   db: ProfitDb;
   jwt: JwtService;
   audit: AuditService;
+  logger: Logger;
 }): ExpressRouter {
   const router = Router();
 
@@ -116,7 +120,7 @@ export function storeRouter(deps: {
       if (!parsed.success) throw ValidationError.fromZod(parsed.error.issues);
       const storeId = req.appAuth.storeId;
       const patch = parsed.data;
-      const updated = await withStoreScope(deps.db, storeId, async (tx) => {
+      const txResult = await withStoreScope(deps.db, storeId, async (tx) => {
         const rows = await tx
           .select()
           .from(storeSettings)
@@ -134,6 +138,12 @@ export function storeRouter(deps: {
             : (current.aiPreferences as Record<string, unknown>);
         // Nested merge for autopilot groups — partial updates must not drop siblings.
         const currentAutomation = current.automationPreferences as Record<string, unknown>;
+        const isAutomationEnabled = (prefs: Record<string, unknown>): boolean => {
+          const mode = typeof prefs["mode"] === "string" ? prefs["mode"] : "MANUAL";
+          const abandoned = (prefs["abandonedCart"] ?? {}) as Record<string, unknown>;
+          return mode !== "MANUAL" || abandoned["enabled"] === true;
+        };
+        const automationWasEnabled = isAutomationEnabled(currentAutomation);
         const currentAbandoned = (currentAutomation["abandonedCart"] ?? {}) as Record<string, unknown>;
         const currentAutopilot = (currentAutomation["autopilot"] ?? {}) as Record<string, unknown>;
         const nextAutomation =
@@ -163,8 +173,10 @@ export function storeRouter(deps: {
           .returning();
         const row = saved[0];
         if (row === undefined) throw new NotFoundError("StoreSettings", storeId);
-        return row;
+        return { row, automationWasEnabled };
       });
+      const updated = txResult.row;
+      const automationWasEnabledBefore = txResult.automationWasEnabled;
       await deps.audit.record({
         storeId,
         userId: req.appAuth.userId,
@@ -174,6 +186,25 @@ export function storeRouter(deps: {
         result: "SUCCESS",
         metadata: { groups: Object.keys(patch) },
       });
+      // M5 activation metric (P11): the first time automation flips on.
+      // Telemetry must never fail the settings write — a missed emit simply
+      // re-fires on the next enabling transition (milestone dedupe absorbs it).
+      const mergedAutomation = updated.automationPreferences as Record<string, unknown>;
+      if (!automationWasEnabledBefore) {
+        const mode = typeof mergedAutomation["mode"] === "string" ? mergedAutomation["mode"] : "MANUAL";
+        const abandoned = (mergedAutomation["abandonedCart"] ?? {}) as Record<string, unknown>;
+        if (mode !== "MANUAL" || abandoned["enabled"] === true) {
+          try {
+            await new EngagementService(deps.db).emit({
+              storeId,
+              kind: EngagementEventKind.FirstAutomationEnabled,
+              userId: req.appAuth.userId,
+            });
+          } catch (error) {
+            deps.logger.warn({ err: error }, "engagement.first_automation_enabled.failed");
+          }
+        }
+      }
       res.status(200).json(successEnvelope(getRequestContext(), updated));
     } catch (error) {
       next(error);

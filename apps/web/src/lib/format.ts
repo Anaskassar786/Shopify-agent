@@ -5,6 +5,18 @@
  * rendered against the merchant's real clock.
  */
 
+/** "Aug 5, 2026" — date-only cells (admin tables, billing ledger dates). */
+export function formatDate(iso: string | null | undefined): string {
+  if (iso === null || iso === undefined || iso === "") return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
 /** "Aug 5, 2026, 14:32" — table cells, audit rows, sync timestamps. */
 export function formatDateTime(iso: string | null | undefined): string {
   if (iso === null || iso === undefined || iso === "") return "—";

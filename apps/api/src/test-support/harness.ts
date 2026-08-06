@@ -16,11 +16,13 @@ import {
   AiRunJob,
 } from "@profit/ai";
 import {
+  resolveStoreAdminContext,
   ShopifyEnsureWebhooksJob,
   SyncModuleJob,
   SyncStoreFullJob,
   WebhookProcessJob,
 } from "@profit/sync";
+import { ShopifyBillingProvider, type BillingChargeProvider } from "@profit/billing";
 import { createApp } from "../app";
 import { loadEnv, type Env } from "../config/env";
 import { EncryptionService } from "@profit/crypto";
@@ -38,6 +40,9 @@ import { syncRouter } from "../modules/sync/sync.router";
 import { analyticsRouter } from "../modules/analytics/analytics.router";
 import { auditLogsRouter } from "../modules/audit/audit.router";
 import { subscriptionRouter } from "../modules/billing/subscription.router";
+import { billingRouter } from "../modules/billing/billing.router";
+import { engagementRouter } from "../modules/billing/engagement.router";
+import { adminRouter } from "../modules/admin/admin.router";
 import { notificationsRouter } from "../modules/notifications/notifications.router";
 import { recommendationsRouter } from "../modules/ai/recommendations.router";
 import { aiRouter } from "../modules/ai/ai.router";
@@ -62,6 +67,8 @@ export const API_KEY = "test_api_key";
 export const API_SECRET = "test_api_secret";
 export const APP_URL = "https://app.profit.test";
 export const ACCESS_SECRET = "integration-access-secret";
+/** M5: the harness admin panel key — tests authenticate with this exact value. */
+export const PLATFORM_ADMIN_KEY = "test-platform-admin-key";
 
 export interface TestEnvironment {
   readonly app: Express;
@@ -191,6 +198,19 @@ export async function buildTestEnvironment(): Promise<TestEnvironment> {
     dbProbe: async () => testDb.client.query("SELECT 1"),
   });
 
+  // M5: same wiring as the production composition root — one shared
+  // NotificationService, and a provider factory that resolves the REAL
+  // encrypted offline token (only the Shopify HTTP edge is stubbed).
+  const notifications = new NotificationService(db, pubsub);
+  const providerFor = async (storeId: string): Promise<BillingChargeProvider | null> => {
+    try {
+      const admin = await resolveStoreAdminContext(db, encryption, storeId);
+      return new ShopifyBillingProvider(admin.shopDomain, admin.accessToken, "2025-10");
+    } catch {
+      return null;
+    }
+  };
+
   const app = createApp({
     env,
     logger,
@@ -199,7 +219,7 @@ export async function buildTestEnvironment(): Promise<TestEnvironment> {
       shopify: shopifyRouter({ oauth, webhooks, logger }),
       apiV1: {
         auth: authRouter({ auth, jwt }),
-        store: storeRouter({ db, jwt, audit }),
+        store: storeRouter({ db, jwt, audit, logger }),
         sync: syncRouter({ db, jwt, queue, persistence, cache }),
         analytics: analyticsRouter({
           db,
@@ -210,17 +230,26 @@ export async function buildTestEnvironment(): Promise<TestEnvironment> {
         customers: customersRouter({ db, jwt }),
         orders: ordersRouter({ db, jwt }),
         inventory: inventoryRouter({ db, jwt }),
-        notifications: notificationsRouter({
-          db,
-          jwt,
-          notifications: new NotificationService(db, pubsub),
-        }),
+        notifications: notificationsRouter({ db, jwt, notifications }),
         search: searchRouter({ db, jwt }),
         auditLogs: auditLogsRouter({ db, jwt }),
         subscription: subscriptionRouter({ db, jwt, audit, logger }),
-        recommendations: recommendationsRouter({ db, jwt, queue, persistence, audit }),
+        recommendations: recommendationsRouter({ db, jwt, queue, persistence, audit, logger }),
         ai: aiRouter({ db, jwt }),
         automation: automationRouter({ db, jwt }),
+        billing: billingRouter({
+          db,
+          jwt,
+          audit,
+          notifications,
+          logger,
+          providerFor,
+          billingTest: true,
+          appUrl: APP_URL,
+          shopifyApiKey: API_KEY,
+        }),
+        engagement: engagementRouter({ db, jwt }),
+        admin: adminRouter({ db, platformAdminKey: PLATFORM_ADMIN_KEY, audit }),
       },
     },
   });
@@ -301,10 +330,31 @@ export function signOauthCallback(params: Record<string, string>): Record<string
 
 // ── Outbound Shopify API stub (network boundary — the ONLY stub allowed) ────
 
+/** Shopify Billing wire state — tests mutate it to drive decision outcomes. */
+export interface BillingStubState {
+  /** What Shopify's currentAppInstallation returns (PENDING after create, by design). */
+  liveSubscriptions: { id: string; name: string; status: string; test: boolean }[];
+  /** Monotonic charge ids handed out by appSubscriptionCreate. */
+  nextChargeSeq: number;
+  /** userErrors simulation for appSubscriptionCreate. */
+  failCreate: boolean;
+  /** Status reported by appSubscriptionCancel. */
+  cancelStatus: string;
+}
+
+export function createBillingStubState(): BillingStubState {
+  return { liveSubscriptions: [], nextChargeSeq: 900_001, failCreate: false, cancelStatus: "CANCELLED" };
+}
+
 export function stubShopifyHttp(overrides: {
   accountOwner?: boolean;
   shopName?: string;
   failWebhookRegistration?: boolean;
+  /**
+   * M5 billing wire behavior. Pass createBillingStubState() and mutate it to
+   * drive the merchant's decision (status flips live in Shopify, never in URL).
+   */
+  billing?: BillingStubState;
 } = {}) {
   const stub = vi.fn(async (input: unknown, init?: RequestInit) => {
     const url = String(input);
@@ -364,6 +414,71 @@ export function stubShopifyHttp(overrides: {
             webhookSubscriptionCreate: {
               webhookSubscription: { id: "gid://shopify/WebhookSubscription/1", topic: "APP_UNINSTALLED" },
               userErrors: [],
+            },
+          },
+        });
+      }
+      // ── M5 Billing wire ──────────────────────────────────────────────────
+      if (query.includes("appSubscriptionCreate")) {
+        const billing = overrides.billing;
+        if (billing === undefined || billing.failCreate) {
+          return jsonResponse({
+            data: {
+              appSubscriptionCreate: {
+                appSubscription: null,
+                confirmationUrl: null,
+                userErrors: [{ field: ["plan"], message: "billing wire not stubbed for this test" }],
+              },
+            },
+          });
+        }
+        const chargeId = String(billing.nextChargeSeq);
+        billing.nextChargeSeq += 1;
+        // Shopify-faithful: a fresh charge waits for the merchant's decision.
+        billing.liveSubscriptions.push({
+          id: `gid://shopify/AppSubscription/${chargeId}`,
+          name: "PROFIT TOOL AI charge (stubbed wire)",
+          status: "PENDING",
+          test: true,
+        });
+        const shopDomain =
+          /https:\/\/([a-z0-9][a-z0-9-]*\.myshopify\.com)/.exec(url)?.[1] ?? TEST_SHOP;
+        return jsonResponse({
+          data: {
+            appSubscriptionCreate: {
+              appSubscription: { id: `gid://shopify/AppSubscription/${chargeId}` },
+              confirmationUrl: `https://${shopDomain}/admin/charges/${chargeId}/confirm_recurring_application_charge`,
+              userErrors: [],
+            },
+          },
+        });
+      }
+      if (query.includes("appSubscriptionCancel")) {
+        const billing = overrides.billing;
+        const variables = (body["variables"] ?? {}) as Record<string, unknown>;
+        const gid = typeof variables["id"] === "string" ? variables["id"] : "";
+        const suffix = gid.split("/").pop() ?? "";
+        if (billing !== undefined) {
+          const live = billing.liveSubscriptions.find((sub) => sub.id === gid || sub.id.endsWith(`/${suffix}`));
+          if (live !== undefined) live.status = billing.cancelStatus;
+        }
+        return jsonResponse({
+          data: {
+            appSubscriptionCancel: {
+              appSubscription: {
+                id: gid === "" ? "gid://shopify/AppSubscription/unknown" : gid,
+                status: billing?.cancelStatus ?? "CANCELLED",
+              },
+              userErrors: [],
+            },
+          },
+        });
+      }
+      if (query.includes("currentAppInstallation")) {
+        return jsonResponse({
+          data: {
+            currentAppInstallation: {
+              activeSubscriptions: overrides.billing?.liveSubscriptions ?? [],
             },
           },
         });

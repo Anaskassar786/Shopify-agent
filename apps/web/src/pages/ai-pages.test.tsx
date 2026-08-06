@@ -17,6 +17,7 @@ import {
   syncStatusResponse,
 } from "../test-support/fixtures";
 import type { RecommendationRow } from "../lib/api-types";
+import { ApiError } from "../lib/api-client";
 
 /**
  * M4 AI surfaces: approve/reject flows, explainability rendering, command
@@ -289,5 +290,58 @@ describe("AutomationPage", () => {
     await screen.findByText("Current guardrails");
     expect(screen.queryByLabelText(/autonomy mode/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save automation policy" })).not.toBeInTheDocument();
+  });
+});
+
+/* ── M5: entitlement-denial UX + activation-funnel telemetry ─────────────── */
+
+describe("M5 entitlement UX + funnel telemetry", () => {
+  it("AI command center emits FIRST_AI_INSIGHT_VIEWED once on mount", async () => {
+    const { stub } = renderApp(<AiCommandCenterPage />, {
+      route: "/ai",
+      handlers: {
+        get: { "/api/v1/ai/overview": () => aiOverviewResponse() },
+        getWithMeta: {},
+        post: { "/api/v1/engagement/events": () => ({ recorded: true }) },
+      },
+    });
+    await screen.findByText("AI Command Center");
+    await waitFor(() =>
+      expect(stub.calls.post).toHaveBeenCalledWith("/api/v1/engagement/events", {
+        kind: "FIRST_AI_INSIGHT_VIEWED",
+      }),
+    );
+  });
+
+  it("an UPGRADE_REQUIRED approval denial becomes an upgrade CTA, not a plain error", async () => {
+    renderApp(<RecommendationsPage />, {
+      route: "/recommendations",
+      handlers: {
+        get: {},
+        getWithMeta: { "/api/v1/recommendations": () => pagedResponse(RECOMMENDATIONS) },
+        post: {
+          [APPROVE_PATH]: () => {
+            throw new ApiError({
+              status: 403,
+              code: "UPGRADE_REQUIRED",
+              message: "Your trial has ended — pick a plan to keep revenue actions running",
+              requestId: "req-x",
+              field: null,
+              details: null,
+            });
+          },
+        },
+      },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /approve recover mia's abandoned cart/i }));
+    await screen.findByRole("dialog");
+    fireEvent.click(await screen.findByRole("button", { name: "Approve & queue" }));
+    // Inline entitlement notice with the server's own copy + the Billing CTA.
+    expect(
+      await screen.findByText(/your trial has ended — pick a plan to keep revenue actions running/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /view plans/i })).toHaveAttribute("href", "/billing");
+    // It is NOT a crash toast.
+    expect(screen.queryByText("Approval failed")).not.toBeInTheDocument();
   });
 });

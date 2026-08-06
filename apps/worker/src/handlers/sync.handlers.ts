@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { CacheInvalidator } from "@profit/cache";
-import { SyncMode, SyncModule } from "@profit/types";
+import { EngagementEventKind, SyncMode, SyncModule } from "@profit/types";
+import { EngagementService } from "@profit/billing";
 import type { JobHandler } from "@profit/queue";
 import {
   AnalyticsRefreshJob,
@@ -132,6 +133,15 @@ export function moduleSyncHandler(deps: WorkerDeps): JobHandler<SyncModulePayloa
             );
           } catch (notifyError) {
             deps.logger.error({ err: notifyError, storeId, runGroupId }, "sync.fanin_notify.failed");
+          }
+          // M5 activation funnel step 2 (deduped; telemetry never breaks sync).
+          try {
+            await new EngagementService(deps.db.db).emit({
+              storeId,
+              kind: EngagementEventKind.FirstSyncCompleted,
+            });
+          } catch (emitError) {
+            deps.logger.warn({ err: emitError, storeId }, "engagement.first_sync_completed.failed");
           }
         }
       }

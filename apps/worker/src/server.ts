@@ -24,6 +24,12 @@ import {
   GeminiProvider,
   SmtpEmailSender,
 } from "@profit/ai";
+import {
+  BillingChurnScanTickJob,
+  BillingReconcileTickJob,
+  BillingTrialTickJob,
+  BillingUsageRollupTickJob,
+} from "@profit/billing";
 import { ModelTier } from "@profit/types";
 import { loadWorkerEnv, type WorkerEnv } from "./config/env";
 import type { WorkerDeps } from "./handlers/deps";
@@ -32,6 +38,12 @@ import { fullSyncHandler, moduleSyncHandler } from "./handlers/sync.handlers";
 import { webhookProcessHandler } from "./handlers/webhook.handlers";
 import { aiMeasureTickHandler, aiNightlyTickHandler, aiRunHandler } from "./handlers/ai.handlers";
 import { executeDiscountActionHandler, executeEmailActionHandler } from "./handlers/execution.handlers";
+import {
+  billingChurnScanTickHandler,
+  billingReconcileTickHandler,
+  billingTrialTickHandler,
+  billingUsageRollupTickHandler,
+} from "./handlers/billing.handlers";
 import { startHealthServer } from "./health/server";
 
 export interface RunningWorker {
@@ -62,6 +74,11 @@ export function registerWorkerJobs(deps: WorkerDeps): void {
   deps.queue.register(AiMeasureTickJob, aiMeasureTickHandler(deps));
   deps.queue.register(AiExecuteEmailActionJob, executeEmailActionHandler(deps));
   deps.queue.register(AiExecuteDiscountActionJob, executeDiscountActionHandler(deps));
+  // M5 billing/growth plane
+  deps.queue.register(BillingTrialTickJob, billingTrialTickHandler(deps));
+  deps.queue.register(BillingUsageRollupTickJob, billingUsageRollupTickHandler(deps));
+  deps.queue.register(BillingReconcileTickJob, billingReconcileTickHandler(deps));
+  deps.queue.register(BillingChurnScanTickJob, billingChurnScanTickHandler(deps));
 }
 
 /** Repeatable schedules (P3 scheduler). BullMQ dedupes by scheduleId; memory driver mirrors semantics. */
@@ -94,6 +111,32 @@ export async function registerWorkerSchedules(deps: WorkerDeps): Promise<void> {
     scheduleId: "ai.measure-tick",
     definition: AiMeasureTickJob,
     everyMs: deps.env.AI_MEASURE_INTERVAL_MS,
+    payload: {},
+  });
+  // M5 billing/growth plane: hourly trial-journey + usage rollups, daily
+  // charge reconcile (Shopify's billing is pull-only) + churn scan.
+  await deps.queue.upsertSchedule({
+    scheduleId: "billing.trial-tick",
+    definition: BillingTrialTickJob,
+    everyMs: deps.env.TRIAL_LIFECYCLE_INTERVAL_MS,
+    payload: {},
+  });
+  await deps.queue.upsertSchedule({
+    scheduleId: "billing.usage-rollup-tick",
+    definition: BillingUsageRollupTickJob,
+    everyMs: deps.env.USAGE_ROLLUP_INTERVAL_MS,
+    payload: {},
+  });
+  await deps.queue.upsertSchedule({
+    scheduleId: "billing.reconcile-tick",
+    definition: BillingReconcileTickJob,
+    everyMs: deps.env.BILLING_RECONCILE_INTERVAL_MS,
+    payload: {},
+  });
+  await deps.queue.upsertSchedule({
+    scheduleId: "billing.churn-scan-tick",
+    definition: BillingChurnScanTickJob,
+    everyMs: deps.env.CHURN_SCAN_INTERVAL_MS,
     payload: {},
   });
 }

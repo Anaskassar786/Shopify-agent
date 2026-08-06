@@ -24,7 +24,7 @@ import { ApiError } from "../lib/api-client";
 import { formatDateTime } from "../lib/format";
 import { useAutomationOverviewQuery, usePatchSettingsMutation } from "../lib/queries";
 import type { AutomationOverviewResponse } from "../lib/api-types";
-import { EXECUTION_STATUS_TONE, recommendationTypeLabel, statusLabel } from "./ai-shared";
+import { EXECUTION_STATUS_TONE, recommendationTypeLabel, statusLabel, useEntitlementNotice } from "./ai-shared";
 
 interface PolicyDraft {
   mode: "MANUAL" | "SEMI_AUTOMATIC" | "FULLY_AUTOMATIC";
@@ -69,6 +69,7 @@ export function AutomationPage(): ReactNode {
   const toast = useToast();
   const overview = useAutomationOverviewQuery();
   const patch = usePatchSettingsMutation();
+  const entitlement = useEntitlementNotice();
   const canEdit = hasPermission("settings:update");
 
   const server = overview.data;
@@ -104,7 +105,7 @@ export function AutomationPage(): ReactNode {
       },
       {
         onSuccess: () => toast.success("Policy saved", "The engine respects these guardrails from its next run."),
-        onError: (error: ApiError) => toast.error("Policy could not be saved", error.message),
+        onError: entitlement.handleMutationError((error) => toast.error("Policy could not be saved", error.message)),
       },
     );
   };
@@ -154,6 +155,7 @@ export function AutomationPage(): ReactNode {
 
   return (
     <div>
+      {entitlement.notice !== null && <div className="mb-4">{entitlement.notice}</div>}
       <PageHeader
         title="Automation"
         subtitle="Your guardrails for the AI engine — what it may do on its own, and hard caps it can never cross."

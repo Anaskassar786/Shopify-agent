@@ -4,6 +4,7 @@
  */
 export * from "./_common";
 export * from "./merchant";
+export * from "./billing";
 export * from "./iam";
 export * from "./shopify";
 export * from "./shopify-data";

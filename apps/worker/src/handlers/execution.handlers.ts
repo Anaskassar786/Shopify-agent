@@ -1,6 +1,7 @@
 import { and, eq } from "@profit/db";
-import { recommendations, storeSettings, stores, withStoreScope } from "@profit/db";
-import { RecommendationStatus, RealtimeEventKind } from "@profit/types";
+import { actionExecutions, recommendations, storeSettings, stores, withStoreScope } from "@profit/db";
+import { ExecutionStatus, RecommendationStatus, RealtimeEventKind, UsageMeter } from "@profit/types";
+import { BillingService } from "@profit/billing";
 import type { JobHandler } from "@profit/queue";
 import {
   executeAction,
@@ -116,9 +117,61 @@ async function loadRecommendationInfo(
   });
 }
 
-function makeExecuteActionHandler(deps: WorkerDeps): JobHandler<AiExecuteActionPayload> {
+/**
+ * M5 preflight for METERED side effects (email sends burn quota per
+ * recipient): check the plan BEFORE the tool runs. A denial is terminal, not
+ * retryable — the queue retrying cannot raise a quota; the merchant upgrades.
+ * The execution row flips FAILED (never stranded PENDING), the recommendation
+ * follows, the merchant is notified with the exact CTA copy.
+ */
+async function failExecutionEntitlementDenied(
+  deps: WorkerDeps,
+  input: { storeId: string; recommendationId: string; executionId: string; reason: string },
+): Promise<void> {
+  const { storeId, recommendationId, executionId, reason } = input;
+  await withStoreScope(deps.db.db, storeId, async (tx) => {
+    await tx
+      .update(actionExecutions)
+      .set({
+        status: ExecutionStatus.Failed,
+        errorMessage: reason,
+        finishedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(actionExecutions.id, executionId), eq(actionExecutions.storeId, storeId)));
+  });
+  const failed = await markRecommendationFailed(deps, { storeId, recommendationId, errorMessage: reason });
+  await notifyExecutionFailed(deps, {
+    storeId,
+    recommendationId,
+    type: failed?.type ?? "UNKNOWN",
+    actionType: failed?.actionType ?? "UNKNOWN",
+    errorMessage: reason,
+  });
+  await recordWorkerAudit(deps.db.db, deps.logger, {
+    storeId,
+    action: "ai.action.failed",
+    entityType: "action_execution",
+    entityId: executionId,
+    result: "FAILURE",
+    metadata: { recommendationId, reasonCode: "ENTITLEMENT_DENIED", error: reason },
+  });
+}
+
+function makeExecuteActionHandler(deps: WorkerDeps, preflightMeter: UsageMeter | null): JobHandler<AiExecuteActionPayload> {
   return async (ctx) => {
     const { storeId, recommendationId, executionId } = ctx.payload;
+    if (preflightMeter !== null) {
+      const denied = await new BillingService(deps.db.db).checkEntitlement(storeId, preflightMeter);
+      if (denied !== null) {
+        deps.logger.warn(
+          { storeId, executionId, meter: preflightMeter, reason: denied.reason },
+          "ai.execute.entitlement_denied",
+        );
+        await failExecutionEntitlementDenied(deps, { storeId, recommendationId, executionId, reason: denied.message });
+        return;
+      }
+    }
     const [resolved, recInfo] = await Promise.all([
       loadBranding(deps, storeId),
       loadRecommendationInfo(deps, storeId, recommendationId),
@@ -197,6 +250,6 @@ function makeExecuteActionHandler(deps: WorkerDeps): JobHandler<AiExecuteActionP
 }
 
 export const executeEmailActionHandler = (deps: WorkerDeps): JobHandler<AiExecuteActionPayload> =>
-  makeExecuteActionHandler(deps);
+  makeExecuteActionHandler(deps, UsageMeter.EmailsSent);
 export const executeDiscountActionHandler = (deps: WorkerDeps): JobHandler<AiExecuteActionPayload> =>
-  makeExecuteActionHandler(deps);
+  makeExecuteActionHandler(deps, null);

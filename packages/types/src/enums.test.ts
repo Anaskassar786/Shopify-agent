@@ -49,4 +49,30 @@ describe("domain enums", () => {
     expect(Object.values(enums.QueueName)).toContain("sync");
     expect(Object.values(enums.QueueName)).toContain("analytics");
   });
+
+  it("M5 billing/growth enums carry exactly the documented values", () => {
+    expect(Object.values(enums.SubscriptionStatus)).toContain("CHARGE_PENDING");
+    expect(Object.values(enums.BillingInterval)).toEqual(["MONTHLY", "YEARLY"]);
+    expect(Object.values(enums.UsageMeter)).toEqual([
+      "AI_CALLS",
+      "EMAILS_SENT",
+      "SMS_SENT",
+      "AUTOMATION_RUNS",
+    ]);
+    // Milestone kinds must mirror the engagement_events_milestone_unique
+    // partial-index predicate in packages/db schema (literal there for snapshot
+    // determinism) — this assertion is the compile-time sync check.
+    expect(enums.ENGAGEMENT_MILESTONE_KINDS).toEqual([
+      "STORE_CONNECTED",
+      "FIRST_SYNC_COMPLETED",
+      "FIRST_AI_RUN_COMPLETED",
+      "FIRST_AI_INSIGHT_VIEWED",
+      "FIRST_RECOMMENDATION_APPROVED",
+      "FIRST_AUTOMATION_ENABLED",
+      "PAID_SUBSCRIPTION_STARTED",
+    ]);
+    for (const kind of enums.ENGAGEMENT_MILESTONE_KINDS) {
+      expect(Object.values(enums.EngagementEventKind), `${kind} must be an engagement kind`).toContain(kind);
+    }
+  });
 });

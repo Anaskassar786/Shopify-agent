@@ -19,6 +19,12 @@ export const ErrorCode = {
   AiProvider: "AI_PROVIDER_ERROR",
   Queue: "QUEUE_ERROR",
   Billing: "BILLING_ERROR",
+  /** M5: subscription state blocks a revenue action (trial ended / cancelled / suspended). */
+  UpgradeRequired: "UPGRADE_REQUIRED",
+  /** M5: a plan quota is exhausted for the current period (details carry meter/limit/used). */
+  QuotaExceeded: "QUOTA_EXCEEDED",
+  /** M5: the Shopify charge provider is not configured — never a fake charge. */
+  BillingUnavailable: "BILLING_UNAVAILABLE",
   MaintenanceMode: "MAINTENANCE_MODE",
   Internal: "INTERNAL_ERROR",
 } as const;
@@ -202,6 +208,26 @@ export class MaintenanceError extends AppError {
   constructor(message = "Service temporarily unavailable for maintenance") {
     super(ErrorCode.MaintenanceMode, { httpStatus: 503, message, expose: true });
     this.name = "MaintenanceError";
+  }
+}
+
+/** M5: structured entitlement failure — the web layer renders the upgrade CTA from this. */
+export class EntitlementError extends AppError {
+  constructor(
+    code: typeof ErrorCode.UpgradeRequired | typeof ErrorCode.QuotaExceeded,
+    message: string,
+    details: Readonly<Record<string, unknown>>,
+  ) {
+    super(code, { httpStatus: 403, message, expose: true, details });
+    this.name = "EntitlementError";
+  }
+}
+
+/** M5: no charge provider configured — subscribe is honestly unavailable, never simulated. */
+export class BillingUnavailableError extends AppError {
+  constructor(message = "Billing charges are not configured for this environment") {
+    super(ErrorCode.BillingUnavailable, { httpStatus: 503, message, expose: true });
+    this.name = "BillingUnavailableError";
   }
 }
 

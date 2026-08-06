@@ -29,3 +29,18 @@ export const AI_QK = {
   aiOverview: ["ai", "overview"] as const,
   automationOverview: ["automation", "overview"] as const,
 };
+
+/** M5 billing/growth-plane keys. */
+export const BILLING_QK = {
+  overview: ["billing", "overview"] as const,
+  plans: ["billing", "plans"] as const,
+  history: ["billing", "history"] as const,
+  roi: (windowDays: number) => ["billing", "roi", windowDays] as const,
+};
+
+/** M5 platform-admin keys (separate auth: key-gated, outside the merchant session). */
+export const ADMIN_QK = {
+  overview: ["admin", "overview"] as const,
+  merchants: (page: number) => ["admin", "merchants", page] as const,
+  aiUsage: ["admin", "ai-usage"] as const,
+};

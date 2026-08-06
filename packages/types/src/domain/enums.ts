@@ -61,9 +61,78 @@ export const SubscriptionStatus = {
   Cancelled: "CANCELLED",
   Expired: "EXPIRED",
   Suspended: "SUSPENDED",
+  /** M5: charge created in Shopify, awaiting the merchant's acceptance. */
+  ChargePending: "CHARGE_PENDING",
 } as const;
 export type SubscriptionStatus =
   (typeof SubscriptionStatus)[keyof typeof SubscriptionStatus];
+
+/** Billing charge cadence (P2: monthly · yearly). */
+export const BillingInterval = {
+  Monthly: "MONTHLY",
+  Yearly: "YEARLY",
+} as const;
+export type BillingInterval = (typeof BillingInterval)[keyof typeof BillingInterval];
+
+/** Usage meters with plan quotas (P2 usage-based readiness; seeds in plans.entitlements.quotas). */
+export const UsageMeter = {
+  AiCalls: "AI_CALLS",
+  EmailsSent: "EMAILS_SENT",
+  SmsSent: "SMS_SENT",
+  AutomationRuns: "AUTOMATION_RUNS",
+} as const;
+export type UsageMeter = (typeof UsageMeter)[keyof typeof UsageMeter];
+
+/**
+ * Billing lifecycle ledger (P2 lifecycle + charge events). Append-only — the
+ * audit-grade source for the merchant's billing history (amendment recorded in
+ * the M5 doc: supersedes P2's invoices/payments rows, which have no honest API).
+ */
+export const BillingEventType = {
+  TrialStarted: "TRIAL_STARTED",
+  TrialNudgeSent: "TRIAL_NUDGE_SENT",
+  TrialExpired: "TRIAL_EXPIRED",
+  ChargeCreated: "CHARGE_CREATED",
+  ChargeAccepted: "CHARGE_ACCEPTED",
+  ChargeDeclined: "CHARGE_DECLINED",
+  ChargeCancelled: "CHARGE_CANCELLED",
+  ChargeReconciled: "CHARGE_RECONCILED",
+  PlanChanged: "PLAN_CHANGED",
+  SubscriptionSuspended: "SUBSCRIPTION_SUSPENDED",
+  SubscriptionReactivated: "SUBSCRIPTION_REACTIVATED",
+} as const;
+export type BillingEventType = (typeof BillingEventType)[keyof typeof BillingEventType];
+
+/**
+ * Engagement & activation-funnel events (P11). First-time milestone kinds are
+ * deduped per store via a partial unique index — funnels never double-count.
+ * Repeatable kinds (nudges, views) carry no dedupe guarantee by design.
+ */
+export const EngagementEventKind = {
+  StoreConnected: "STORE_CONNECTED",
+  FirstSyncCompleted: "FIRST_SYNC_COMPLETED",
+  FirstAiRunCompleted: "FIRST_AI_RUN_COMPLETED",
+  FirstAiInsightViewed: "FIRST_AI_INSIGHT_VIEWED",
+  FirstRecommendationApproved: "FIRST_RECOMMENDATION_APPROVED",
+  FirstAutomationEnabled: "FIRST_AUTOMATION_ENABLED",
+  UpgradeViewed: "UPGRADE_VIEWED",
+  PaidSubscriptionStarted: "PAID_SUBSCRIPTION_STARTED",
+  TrialNudgeSent: "TRIAL_NUDGE_SENT",
+  ChurnNudgeSent: "CHURN_NUDGE_SENT",
+} as const;
+export type EngagementEventKind =
+  (typeof EngagementEventKind)[keyof typeof EngagementEventKind];
+
+/** Kinds deduped to one row per store — the funnel milestones (P11 activation metric). */
+export const ENGAGEMENT_MILESTONE_KINDS: readonly EngagementEventKind[] = [
+  EngagementEventKind.StoreConnected,
+  EngagementEventKind.FirstSyncCompleted,
+  EngagementEventKind.FirstAiRunCompleted,
+  EngagementEventKind.FirstAiInsightViewed,
+  EngagementEventKind.FirstRecommendationApproved,
+  EngagementEventKind.FirstAutomationEnabled,
+  EngagementEventKind.PaidSubscriptionStarted,
+];
 
 /** Sync engine (P2). CHECKOUTS added in M4 — the abandoned-cart data plane. */
 export const SyncModule = {

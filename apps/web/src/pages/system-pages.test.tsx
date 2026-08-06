@@ -2,10 +2,9 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { NotificationsPage } from "./NotificationsPage";
 import { AuditLogsPage } from "./AuditLogsPage";
-import { BillingPage } from "./BillingPage";
 import { SupportPage } from "./SupportPage";
 import { pagedResponse, renderApp } from "../test-support/render";
-import { AUDIT_ROWS, NOTIFICATIONS, subscriptionResponse } from "../test-support/fixtures";
+import { AUDIT_ROWS, NOTIFICATIONS } from "../test-support/fixtures";
 
 describe("NotificationsPage", () => {
   const handlers = (unread = 1) => ({
@@ -68,32 +67,8 @@ describe("AuditLogsPage", () => {
   });
 });
 
-describe("BillingPage", () => {
-  it("shows the live plan with trial progress", async () => {
-    renderApp(<BillingPage />, {
-      route: "/billing",
-      handlers: { get: { "/api/v1/subscription": () => subscriptionResponse() } },
-    });
-    expect(await screen.findByText(/Growth plan/)).toBeInTheDocument();
-    expect(screen.getByText("TRIALING")).toBeInTheDocument();
-    expect(screen.getByText("$49.00")).toBeInTheDocument();
-    expect(screen.getByText(/3 days left/)).toBeInTheDocument();
-  });
-
-  it("offers the recovery path when provisioning left no subscription row", async () => {
-    const { stub } = renderApp(<BillingPage />, {
-      route: "/billing",
-      handlers: {
-        get: { "/api/v1/subscription": () => ({ subscription: null, plan: null }) },
-        post: { "/api/v1/subscription/start-trial": () => ({ subscription: { id: "sub-new" }, created: true }) },
-      },
-    });
-    expect(await screen.findByText("Start your free trial")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /start free trial/i }));
-    fireEvent.click(await screen.findByRole("button", { name: "Start trial" }));
-    await waitFor(() => expect(stub.calls.post).toHaveBeenCalledWith("/api/v1/subscription/start-trial", {}));
-  });
-});
+/* BillingPage moved to billing-page.test.tsx (M5: the page now runs on the
+   /billing/overview + plans + history + roi wires, covered there). */
 
 describe("SupportPage", () => {
   it("renders the real contact channel and truthful FAQs", async () => {

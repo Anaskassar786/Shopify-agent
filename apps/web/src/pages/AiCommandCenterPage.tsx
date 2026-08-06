@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Cpu, Gauge as GaugeIcon, Sparkles } from "lucide-react";
 import {
@@ -21,8 +21,14 @@ import { useAuth } from "../lib/auth-context";
 import { ApiError } from "../lib/api-client";
 import { formatRelativeTime } from "../lib/format";
 import { useAiOverviewQuery, useRunAnalysisMutation } from "../lib/queries";
+import { useEmitEngagementEventMutation } from "../lib/billing-queries";
 import type { AiOverviewResponse } from "../lib/api-types";
-import { formatCostMicros, RECOMMENDATION_EVENT_LABEL, recommendationTypeLabel } from "./ai-shared";
+import {
+  formatCostMicros,
+  RECOMMENDATION_EVENT_LABEL,
+  recommendationTypeLabel,
+  useEntitlementNotice,
+} from "./ai-shared";
 
 const RUN_STATUS_TONE: Readonly<Record<string, "success" | "warning" | "danger" | "neutral">> = {
   COMPLETED: "success",
@@ -34,21 +40,54 @@ function RunAnalysisButton(): ReactNode {
   const { hasPermission } = useAuth();
   const run = useRunAnalysisMutation();
   const toast = useToast();
+  const entitlement = useEntitlementNotice();
   if (!hasPermission("recommendations:approve")) return null;
   return (
-    <Button
-      size="sm"
-      iconLeft={<Sparkles className="size-3.5" aria-hidden />}
-      loading={run.isPending}
-      onClick={() =>
-        run.mutate(undefined, {
-          onSuccess: () => toast.success("Analysis is running", "Fresh decisions stream into the feed below the moment they land."),
-          onError: (error: ApiError) => toast.error("Analysis could not start", error.message),
-        })
-      }
-    >
-      Run analysis now
-    </Button>
+    <>
+      {entitlement.notice !== null && <div className="basis-full">{entitlement.notice}</div>}
+      <Button
+        size="sm"
+        iconLeft={<Sparkles className="size-3.5" aria-hidden />}
+        loading={run.isPending}
+        onClick={() =>
+          run.mutate(undefined, {
+            onSuccess: () => toast.success("Analysis is running", "Fresh decisions stream into the feed below the moment they land."),
+            onError: entitlement.handleMutationError((error) => toast.error("Analysis could not start", error.message)),
+          })
+        }
+      >
+        Run analysis now
+      </Button>
+    </>
+  );
+}
+
+function FirstRunAction({
+  run,
+  onStarted,
+  onError,
+}: {
+  readonly run: ReturnType<typeof useRunAnalysisMutation>;
+  readonly onStarted: () => void;
+  readonly onError: (title: string, body: string) => void;
+}): ReactNode {
+  const entitlement = useEntitlementNotice();
+  return (
+    <div className="flex flex-col items-center gap-3">
+      {entitlement.notice}
+      <Button
+        size="sm"
+        onClick={() =>
+          run.mutate(undefined, {
+            onSuccess: onStarted,
+            onError: entitlement.handleMutationError((error) => onError("Analysis could not start", error.message)),
+          })
+        }
+        loading={run.isPending}
+      >
+        Run your first analysis
+      </Button>
+    </div>
   );
 }
 
@@ -64,18 +103,13 @@ function FirstRunHero(): ReactNode {
         body="This is where the AI engine reports in: every run reads your synced store data, proposes revenue actions with evidence, and waits for your approval. It never acts on its own unless you enable automation."
         primaryAction={
           hasPermission("recommendations:approve") ? (
-            <Button
-              size="sm"
-              onClick={() =>
-                run.mutate(undefined, {
-                  onSuccess: () => toast.success("Analysis is running", "The first recommendations land here within moments."),
-                  onError: (error: ApiError) => toast.error("Analysis could not start", error.message),
-                })
+            <FirstRunAction
+              run={run}
+              onStarted={() =>
+                toast.success("Analysis is running", "The first recommendations land here within moments.")
               }
-              loading={run.isPending}
-            >
-              Run your first analysis
-            </Button>
+              onError={(title, body) => toast.error(title, body)}
+            />
           ) : undefined
         }
       />
@@ -130,7 +164,15 @@ function DecisionFeed({ events }: { readonly events: AiOverviewResponse["recentE
 
 export function AiCommandCenterPage(): ReactNode {
   const overview = useAiOverviewQuery();
+  const emitEngagement = useEmitEngagementEventMutation();
   const data = overview.data;
+
+  // Funnel step: the merchant has SEEN the AI surface. Telemetry failures are
+  // invisible (server dedupes the milestone per store either way).
+  useEffect(() => {
+    emitEngagement.mutate({ kind: "FIRST_AI_INSIGHT_VIEWED" }, { onError: () => undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div>

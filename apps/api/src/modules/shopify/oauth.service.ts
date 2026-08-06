@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { and, eq, isNull } from "@profit/db";
 import type { ProfitDb } from "@profit/db";
 import {
+  billingEvents,
   plans,
   shopifyOauthStates,
   shopifySessions,
@@ -9,7 +10,7 @@ import {
   stores,
   subscriptions,
 } from "@profit/db";
-import { StoreStatus, SubscriptionStatus } from "@profit/types";
+import { BillingEventType, PlanCode, StoreStatus, SubscriptionStatus } from "@profit/types";
 import { withStoreScope } from "@profit/db";
 import type { EncryptionService } from "@profit/crypto";
 import {
@@ -366,11 +367,26 @@ export class ShopifyOauthService {
           .where(eq(subscriptions.storeId, row.id))
           .limit(1);
         if (existing[0] === undefined) {
+          const trialEndsAt = new Date(Date.now() + starterPlan.trialDays * 24 * 60 * 60 * 1000);
           await tx.insert(subscriptions).values({
             storeId: row.id,
             planId: starterPlan.id,
             status: SubscriptionStatus.Trialing,
-            trialEndsAt: new Date(Date.now() + starterPlan.trialDays * 24 * 60 * 60 * 1000),
+            trialEndsAt,
+          });
+          // M5 ledger: the merchant's billing history must BEGIN at install —
+          // row and its first event commit in the same transaction.
+          await tx.insert(billingEvents).values({
+            storeId: row.id,
+            type: BillingEventType.TrialStarted,
+            planCode: PlanCode.Starter,
+            toStatus: SubscriptionStatus.Trialing,
+            amountCents: 0,
+            metadata: {
+              source: "install_provisioning",
+              trialEndsAt: trialEndsAt.toISOString(),
+              trialDays: starterPlan.trialDays,
+            },
           });
         }
       } else {

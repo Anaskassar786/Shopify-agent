@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@profit/ai": "workspace:*",
+    "@profit/billing": "workspace:*",
     "@profit/cache": "workspace:*",
     "@profit/crypto": "workspace:*",
     "@profit/db": "workspace:*",

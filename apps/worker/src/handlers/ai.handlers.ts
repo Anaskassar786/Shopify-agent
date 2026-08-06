@@ -3,11 +3,13 @@ import { stores } from "@profit/db";
 import {
   ActionType,
   AiRunTrigger,
+  EngagementEventKind,
   NotificationCategory,
   RealtimeEventKind,
   StoreStatus,
   type RealtimeEvent,
 } from "@profit/types";
+import { BillingService, EngagementService } from "@profit/billing";
 import type { JobHandler } from "@profit/queue";
 import {
   AiExecuteDiscountActionJob,
@@ -84,6 +86,18 @@ export function aiRunHandler(deps: WorkerDeps): JobHandler<AiRunPayload> {
     const summary = await service.run(storeId, trigger);
     await enqueueExecutions(deps, summary, storeId);
 
+    // M5 activation funnel step 3 (deduped; telemetry never breaks the run).
+    if (summary.status === "COMPLETED") {
+      try {
+        await new EngagementService(deps.db.db).emit({
+          storeId,
+          kind: EngagementEventKind.FirstAiRunCompleted,
+        });
+      } catch (emitError) {
+        deps.logger.warn({ err: emitError, storeId }, "engagement.first_ai_run_completed.failed");
+      }
+    }
+
     for (const created of summary.created) {
       await publishRealtime(deps.pubsub, {
         kind: RealtimeEventKind.RecommendationCreated,
@@ -132,7 +146,16 @@ export function aiNightlyTickHandler(deps: WorkerDeps): JobHandler<Record<string
       .select({ id: stores.id })
       .from(stores)
       .where(eq(stores.status, StoreStatus.Active));
+    const billing = new BillingService(deps.db.db);
+    let skippedByPlan = 0;
     for (const store of activeStores) {
+      // M5 gate: scheduled model spend is a revenue action — an inactive plan
+      // burns zero tokens (manual runs are gated at the API with a 403 CTA).
+      const access = await billing.evaluateStoreAccess(store.id);
+      if (!access.revenueActionsAllowed) {
+        skippedByPlan += 1;
+        continue;
+      }
       await deps.persistence.enqueuePersistent(
         deps.queue,
         AiRunJob,
@@ -140,7 +163,10 @@ export function aiNightlyTickHandler(deps: WorkerDeps): JobHandler<Record<string
         { jobId: `ai:run:${bucket}:${store.id}` },
       );
     }
-    deps.logger.info({ stores: activeStores.length, bucket }, "ai.nightly_tick.fanned_out");
+    deps.logger.info(
+      { stores: activeStores.length - skippedByPlan, bucket, skippedByPlan },
+      "ai.nightly_tick.fanned_out",
+    );
   };
 }
 

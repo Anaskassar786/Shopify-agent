@@ -31,6 +31,7 @@ import { AiRunTrigger, ModelTier } from "@profit/types";
 import {
   buildWorkerTestEnvironment,
   jsonResponse,
+  seedHarnessSubscription,
   type WorkerTestEnvironment,
 } from "../test-support/harness";
 
@@ -179,6 +180,10 @@ describe("AI revenue loop end-to-end via nightly tick", () => {
       REVENUE_RECOVERY: [draftFor("cart:loop-1", 86)],
     });
     env = await buildWorkerTestEnvironment({ aiProvider: provider, emailSender: sender });
+    // M5: the nightly tick only fans out to entitlement-passing stores and the
+    // email executor preflights the quota gate — production installs always
+    // carry the provisioned trial row, so this store must too.
+    await seedHarnessSubscription(env.db, env.storeId);
     await env.pubsub.subscribe(channelFor(env.storeId), (message) => {
       published.push((message as { payload: unknown }).payload);
       return Promise.resolve();
@@ -300,6 +305,9 @@ describe("execution failure path (P3: never silently dead-end)", () => {
       vi.fn(async () => jsonResponse({ price_rule: { id: 9202 } }, { status: 201 })),
     );
     envTwo = await buildWorkerTestEnvironment({ emailSender: new CaptureSender() });
+    // M5: email execution preflights the EmailsSent entitlement — a trial row
+    // keeps this suite on the tool path it is testing (not the quota gate).
+    await seedHarnessSubscription(envTwo.db, envTwo.storeId);
     await envTwo.db.insert(storeSettings).values({
       storeId: envTwo.storeId,
       aiPreferences: {},

@@ -11,7 +11,7 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-import { PlanCode, StoreStatus, SubscriptionStatus } from "@profit/types";
+import { BillingInterval, PlanCode, StoreStatus, SubscriptionStatus } from "@profit/types";
 import { baseColumns, enumToPgTuple, softDeleteColumns } from "./_common";
 
 export const storeStatusEnum = pgEnum("store_status", enumToPgTuple(StoreStatus));
@@ -20,6 +20,8 @@ export const subscriptionStatusEnum = pgEnum(
   "subscription_status",
   enumToPgTuple(SubscriptionStatus),
 );
+/** M5: charge cadence chosen at subscribe time (interval switching = new charge). */
+export const billingIntervalEnum = pgEnum("billing_interval", enumToPgTuple(BillingInterval));
 
 /**
  * Tenant root. One row per connected Shopify store. `stores` is the documented
@@ -114,7 +116,14 @@ export const subscriptions = pgTable(
     status: subscriptionStatusEnum("status").notNull().default("TRIALING"),
     /** Shopify Billing recurring charge id. */
     shopifyChargeId: varchar("shopify_charge_id", { length: 64 }),
+    /** M5: cadence of the active/pending charge (null while on trial). */
+    billingInterval: billingIntervalEnum("billing_interval"),
     trialEndsAt: timestamp("trial_ends_at", { withTimezone: true, mode: "date" }),
+    /**
+     * M5 grace: after TRIAL_EXPIRED (or a vanished charge) revenue actions stay
+     * readable-blocked but the store is not SUSPENDED until this instant passes.
+     */
+    graceEndsAt: timestamp("grace_ends_at", { withTimezone: true, mode: "date" }),
     currentPeriodStart: timestamp("current_period_start", {
       withTimezone: true,
       mode: "date",

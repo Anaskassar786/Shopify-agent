@@ -43,6 +43,13 @@
       "when": 1785985461598,
       "tag": "0005_m4_ai_engine",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786003969116,
+      "tag": "0006_m5_billing_growth",
+      "breakpoints": true
     }
   ]
 }

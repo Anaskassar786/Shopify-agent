@@ -30,6 +30,11 @@ const schema = z.object({
   AI_DEFAULT_GEMINI_MODEL: z.string().min(1).default("gemini-2.0-flash"),
   AI_RUN_INTERVAL_MS: z.coerce.number().int().min(3_600_000).default(21_600_000),
   AI_MEASURE_INTERVAL_MS: z.coerce.number().int().min(3_600_000).default(86_400_000),
+  /** M5 billing/growth plane — hourly trial/usage sweeps, daily reconcile/churn. */
+  TRIAL_LIFECYCLE_INTERVAL_MS: z.coerce.number().int().min(1_800_000).default(3_600_000),
+  USAGE_ROLLUP_INTERVAL_MS: z.coerce.number().int().min(1_800_000).default(3_600_000),
+  BILLING_RECONCILE_INTERVAL_MS: z.coerce.number().int().min(3_600_000).default(86_400_000),
+  CHURN_SCAN_INTERVAL_MS: z.coerce.number().int().min(3_600_000).default(86_400_000),
   AI_MAX_AGENT_CALLS_PER_RUN: z.coerce.number().int().min(1).max(10).default(5),
   /** M4 email tool — absent SMTP set = email tool unavailable (failsafe). */
   SMTP_HOST: z.string().min(1).optional(),

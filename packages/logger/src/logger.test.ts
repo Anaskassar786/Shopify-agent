@@ -43,4 +43,13 @@ describe("createLogger", () => {
     expect(raw).not.toContain("ak_xxx");
     expect(raw).toContain("[REDACTED]");
   });
+
+  it("defaults to the process stdout when no destination is provided", () => {
+    // pino writes via SonicBoom on fd 1 here — with level fatal nothing
+    // escapes to the test runner; the factory branch is the assertion target.
+    const logger = createLogger({ level: "fatal", service: "worker", environment: "test" });
+    expect(typeof logger.info).toBe("function");
+    expect(logger.bindings().service).toBe("worker");
+    logger.info("never-emitted-below-fatal");
+  });
 });

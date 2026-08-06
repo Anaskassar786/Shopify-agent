@@ -15,4 +15,5 @@ export * from "./service/recommendations";
 export * from "./service/attribution";
 export * from "./service/executor";
 export * from "./service/overview";
+export * from "./service/roi";
 export * from "./jobs";

@@ -50,6 +50,26 @@ export interface SubscriptionRow {
   readonly currentPeriodStart: string | null;
   readonly currentPeriodEnd: string | null;
   readonly planId: string;
+  /** M5 billing engine fields (present on every billing-plane wire). */
+  readonly shopifyChargeId?: string | null;
+  readonly billingInterval?: BillingIntervalValue | null;
+  readonly graceEndsAt?: string | null;
+  readonly cancelledAt?: string | null;
+}
+
+export type BillingIntervalValue = "MONTHLY" | "YEARLY";
+
+/** Parsed + validated at the API edge — the UI renders plan limits from these. */
+export interface PlanEntitlements {
+  readonly capabilities: readonly string[];
+  readonly quotas: {
+    readonly aiCalls: number;
+    readonly emails: number;
+    readonly sms: number;
+    readonly automationRuns: number;
+    readonly seats: number;
+    readonly stores: number;
+  };
 }
 
 export interface PlanRow {
@@ -60,7 +80,8 @@ export interface PlanRow {
   readonly monthlyPriceCents: number;
   readonly yearlyPriceCents: number;
   readonly trialDays: number;
-  readonly entitlements: Record<string, unknown>;
+  readonly entitlements: PlanEntitlements;
+  readonly isActive?: boolean;
 }
 
 export interface StoreResponse {
@@ -478,4 +499,147 @@ export interface AutomationOverviewResponse {
     readonly attributedOrders: number;
     readonly measuredCount: number;
   };
+}
+
+/* ── Billing & growth plane (M5) ─────────────────────────────────────────── */
+
+export interface UsageMeterRow {
+  readonly meter: "AI_CALLS" | "EMAILS_SENT" | "SMS_SENT" | "AUTOMATION_RUNS";
+  readonly used: number;
+  readonly limit: number;
+  /** null when the plan does not cap the meter (unlimited or no plan). */
+  readonly percentUsed: number | null;
+}
+
+export interface BillingUsageSummary {
+  readonly window: { readonly from: string; readonly to: string };
+  readonly meters: readonly UsageMeterRow[];
+  readonly entitlements: PlanEntitlements | null;
+  readonly status: string | null;
+}
+
+export interface BillingAccessState {
+  readonly revenueActionsAllowed: boolean;
+  readonly blockedReason: string | null;
+}
+
+/** GET /billing/overview — subscription state + live usage bundle + access gate. */
+export interface BillingOverviewResponse {
+  readonly subscription: SubscriptionRow | null;
+  readonly plan: PlanRow | null;
+  readonly usage: BillingUsageSummary;
+  readonly access: BillingAccessState;
+}
+
+/** GET /billing/plans — active catalog + the store's current plan id. */
+export interface PlansCatalogResponse {
+  readonly currentPlanId: string | null;
+  readonly plans: readonly PlanRow[];
+}
+
+export type BillingEventTypeValue =
+  | "TRIAL_STARTED"
+  | "TRIAL_NUDGE_SENT"
+  | "TRIAL_EXPIRED"
+  | "CHARGE_CREATED"
+  | "CHARGE_ACCEPTED"
+  | "CHARGE_DECLINED"
+  | "CHARGE_CANCELLED"
+  | "CHARGE_RECONCILED"
+  | "PLAN_CHANGED"
+  | "SUBSCRIPTION_SUSPENDED"
+  | "SUBSCRIPTION_REACTIVATED";
+
+export interface BillingEventRow {
+  readonly id: string;
+  readonly storeId: string;
+  readonly type: BillingEventTypeValue;
+  readonly planCode: string | null;
+  readonly chargeId: string | null;
+  readonly amountCents: number | null;
+  readonly interval: BillingIntervalValue | null;
+  readonly fromStatus: string | null;
+  readonly toStatus: string | null;
+  readonly metadata: Record<string, unknown>;
+  readonly createdAt: string;
+}
+
+/** POST /billing/subscribe → 201 — top-level redirect to Shopify's decision screen. */
+export interface SubscribeStartedResponse {
+  readonly confirmationUrl: string;
+  readonly chargeId: string;
+}
+
+/* ROI read-model (GET /analytics/roi) — methodology copy rides the data. */
+export interface RoiReportResponse {
+  readonly windowDays: number;
+  readonly from: string;
+  readonly to: string;
+  readonly outcomes: {
+    readonly attributedRevenueCents: number;
+    readonly attributedOrdersCount: number;
+    readonly measuredRecommendations: number;
+  };
+  readonly pipeline: {
+    readonly openRecommendations: number;
+    readonly openEstimatedRevenueCents: number;
+    readonly highPriorityOpen: number;
+  };
+  readonly cost: { readonly micros: number; readonly calls: number };
+  readonly roiMultiple: number | null;
+  readonly acceptanceRatePct: number | null;
+}
+
+/* Platform admin read-models (GET /admin/* — key-gated, cross-tenant by design). */
+export interface AdminDashboardRow {
+  readonly merchants: { readonly total: number; readonly active: number; readonly uninstalled: number };
+  readonly subscriptions: {
+    readonly trialing: number;
+    readonly active: number;
+    readonly chargePending: number;
+    readonly trialExpired: number;
+    readonly cancelled: number;
+    readonly suspended: number;
+  };
+  readonly modeledMrrCents: number;
+  readonly modeledArrCents: number;
+  readonly ai: { readonly runsLast7d: number; readonly costMicrosLast7d: number; readonly tokensLast7d: number };
+  readonly system: {
+    readonly jobsRunning: number;
+    readonly jobsPending: number;
+    readonly jobsFailed: number;
+    readonly deadJobs: number;
+  };
+}
+
+export interface FunnelStepRow {
+  readonly kind: string;
+  readonly stores: number;
+  readonly conversionFromPreviousPct: number | null;
+}
+
+export interface AdminOverviewResponse {
+  readonly dashboard: AdminDashboardRow;
+  readonly funnel: readonly FunnelStepRow[];
+}
+
+export interface AdminMerchantRow {
+  readonly storeId: string;
+  readonly shopDomain: string;
+  readonly name: string;
+  readonly installedAt: string;
+  readonly planCode: string | null;
+  readonly subscriptionStatus: string | null;
+  readonly trialEndsAt: string | null;
+  readonly attributedRevenueCents: number;
+  readonly aiCostMicrosLast30d: number;
+  readonly lastActivityAt: string | null;
+}
+
+export interface AdminAiUsageRow {
+  readonly storeId: string;
+  readonly shopDomain: string;
+  readonly calls: number;
+  readonly tokens: number;
+  readonly costMicros: number;
 }

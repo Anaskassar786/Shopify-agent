@@ -16,6 +16,9 @@ export interface ApiV1Routers {
   readonly recommendations: ExpressRouter;
   readonly ai: ExpressRouter;
   readonly automation: ExpressRouter;
+  readonly billing: ExpressRouter;
+  readonly engagement: ExpressRouter;
+  readonly admin: ExpressRouter;
 }
 
 /**
@@ -24,7 +27,7 @@ export interface ApiV1Routers {
  *   M2: sync, analytics, products, customers, orders, inventory
  *   M3: notifications, search, audit-logs, subscription (+ WS at /api/v1/realtime)
  *   M4: recommendations, ai, automation
- *   M5: billing (charges), admin
+ *   M5: billing (charges), engagement (growth telemetry), admin (platform panel)
  * Versioning rule (P2): breaking changes ship under /api/v2; v1 stays stable.
  */
 export function createApiV1Router(modules: ApiV1Routers): ExpressRouter {
@@ -44,5 +47,8 @@ export function createApiV1Router(modules: ApiV1Routers): ExpressRouter {
   router.use("/recommendations", modules.recommendations);
   router.use("/ai", modules.ai);
   router.use("/automation", modules.automation);
+  router.use("/billing", modules.billing);
+  router.use("/engagement", modules.engagement);
+  router.use("/admin", modules.admin);
   return router;
 }

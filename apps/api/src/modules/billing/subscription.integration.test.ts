@@ -1,5 +1,5 @@
-import { eq } from "@profit/db";
-import { auditLogs, stores, subscriptions, storeSettings } from "@profit/db";
+import { and, eq } from "@profit/db";
+import { auditLogs, engagementEvents, stores, subscriptions, storeSettings } from "@profit/db";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -148,6 +148,35 @@ describe("PATCH /api/v1/store/settings", () => {
         .expect(400);
       expect(res.body.errors[0].code).toBe("VALIDATION_FAILED");
     }
+  });
+
+  it("enabling automation records the FIRST_AUTOMATION_ENABLED milestone exactly once (M5)", async () => {
+    const milestoneFor = async () =>
+      env.db
+        .select()
+        .from(engagementEvents)
+        .where(
+          and(
+            eq(engagementEvents.storeId, storeId),
+            eq(engagementEvents.kind, "FIRST_AUTOMATION_ENABLED"),
+          ),
+        );
+    expect(await milestoneFor()).toHaveLength(0);
+
+    await request(env.app)
+      .patch("/api/v1/store/settings")
+      .set("authorization", `Bearer ${accessToken}`)
+      .send({ automationPreferences: { mode: "SEMI_AUTOMATIC" } })
+      .expect(200);
+    expect(await milestoneFor()).toHaveLength(1);
+
+    // Re-patches never duplicate the milestone (partial-index dedupe).
+    await request(env.app)
+      .patch("/api/v1/store/settings")
+      .set("authorization", `Bearer ${accessToken}`)
+      .send({ automationPreferences: { abandonedCart: { enabled: true } } })
+      .expect(200);
+    expect(await milestoneFor()).toHaveLength(1);
   });
 });
 

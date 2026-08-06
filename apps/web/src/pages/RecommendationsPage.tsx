@@ -35,6 +35,7 @@ import {
   RECOMMENDATION_STATUS_TONE,
   recommendationTypeLabel,
   statusLabel,
+  useEntitlementNotice,
 } from "./ai-shared";
 
 const STATUS_TABS = [
@@ -115,6 +116,7 @@ export function RecommendationsPage(): ReactNode {
   const approve = useApproveRecommendationMutation();
   const reject = useRejectRecommendationMutation();
   const run = useRunAnalysisMutation();
+  const entitlement = useEntitlementNotice();
 
   const canApprove = hasPermission("recommendations:approve");
   const canReject = hasPermission("recommendations:reject");
@@ -138,10 +140,10 @@ export function RecommendationsPage(): ReactNode {
             : "The approved action is queued on its tool queue — progress shows under Executing.",
         );
       },
-      onError: (error: ApiError) => {
+      onError: entitlement.handleMutationError((error) => {
         setApproveTarget(null);
         toast.error("Approval failed", error.message);
-      },
+      }),
     });
   };
 
@@ -168,7 +170,7 @@ export function RecommendationsPage(): ReactNode {
   const onRun = (): void => {
     run.mutate(undefined, {
       onSuccess: () => toast.success("Analysis is running", "New recommendations land here the moment they're ready."),
-      onError: (error: ApiError) => toast.error("Analysis could not start", error.message),
+      onError: entitlement.handleMutationError((error) => toast.error("Analysis could not start", error.message)),
     });
   };
 
@@ -263,6 +265,8 @@ export function RecommendationsPage(): ReactNode {
           ) : undefined
         }
       />
+
+      {entitlement.notice !== null && <div className="mb-4">{entitlement.notice}</div>}
 
       <QueryBoundary query={list}>
         <>
