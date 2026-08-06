@@ -1,4 +1,4 @@
-import type { CachePort } from "@profit/cache";
+import type { CachePort, PubSubPort } from "@profit/cache";
 import type { EncryptionService } from "@profit/crypto";
 import type { DbClient } from "@profit/db";
 import type { Logger } from "@profit/logger";
@@ -16,5 +16,6 @@ export interface WorkerDeps {
   readonly queue: JobQueue;
   readonly persistence: JobPersistence;
   readonly cache: CachePort;
+  readonly pubsub: PubSubPort;
   readonly encryption: EncryptionService;
 }

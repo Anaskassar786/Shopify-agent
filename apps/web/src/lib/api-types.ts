@@ -1,0 +1,312 @@
+import type {
+  NotificationCategory,
+  NotificationCategory as NC,
+  ProductStatus,
+  SyncModule,
+  SyncStatus,
+} from "@profit/types";
+
+/**
+ * Wire types for the v1 API — every interface mirrors an API router response
+ * EXACTLY (M1–M3 contracts). When a router's response changes, one type
+ * error surfaces at the client touchpoint.
+ */
+
+/* ── Common envelopes ────────────────────────────────────────────────────── */
+
+export interface Paged<T> {
+  readonly items: readonly T[];
+  readonly page: number;
+  readonly pageSize: number;
+  readonly totalItems: number;
+}
+
+/* ── Store ───────────────────────────────────────────────────────────────── */
+
+export interface StoreProfile {
+  readonly id: string;
+  readonly shopDomain: string;
+  readonly name: string;
+  readonly email: string | null;
+  readonly currency: string;
+  readonly timezone: string;
+  readonly status: string;
+  readonly installedAt: string;
+}
+
+export interface StoreSettingsRow {
+  readonly id: string;
+  readonly branding: Record<string, unknown>;
+  readonly aiPreferences: Record<string, unknown>;
+  readonly automationPreferences: Record<string, unknown>;
+  readonly featureOverrides: Record<string, unknown>;
+  readonly onboardingCompletedAt: string | null;
+}
+
+export interface SubscriptionRow {
+  readonly id: string;
+  readonly status: string;
+  readonly trialEndsAt: string | null;
+  readonly currentPeriodStart: string | null;
+  readonly currentPeriodEnd: string | null;
+  readonly planId: string;
+}
+
+export interface PlanRow {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly monthlyPriceCents: number;
+  readonly yearlyPriceCents: number;
+  readonly trialDays: number;
+  readonly entitlements: Record<string, unknown>;
+}
+
+export interface StoreResponse {
+  readonly store: StoreProfile;
+  readonly settings: StoreSettingsRow | null;
+  readonly subscription: SubscriptionRow | null;
+}
+
+export interface SubscriptionResponse {
+  readonly subscription: SubscriptionRow | null;
+  readonly plan: PlanRow | null;
+}
+
+/* ── Sync ────────────────────────────────────────────────────────────────── */
+
+export interface SyncModuleStatus {
+  readonly module: SyncModule;
+  readonly status: SyncStatus | "PENDING";
+  readonly mode: string | null;
+  readonly startedAt: string | null;
+  readonly finishedAt: string | null;
+  readonly stats: { processed: number; created: number; updated: number; failed: number } | null;
+  readonly errorMessage: string | null;
+  readonly retryCount: number;
+}
+
+export interface SyncStatusResponse {
+  readonly storeId: string;
+  readonly modules: readonly SyncModuleStatus[];
+}
+
+export interface SyncHistoryRow {
+  readonly id: string;
+  readonly storeId: string;
+  readonly module: SyncModule;
+  readonly mode: string;
+  readonly status: SyncStatus;
+  readonly stats: Record<string, number>;
+  readonly errorMessage: string | null;
+  readonly retryCount: number;
+  readonly startedAt: string;
+  readonly finishedAt: string | null;
+  readonly createdAt: string;
+}
+
+export interface SyncTriggerResponse {
+  readonly module?: SyncModule;
+  readonly modules?: readonly SyncModule[];
+  readonly jobId?: string;
+  readonly runGroupId?: string;
+}
+
+/* ── Analytics ───────────────────────────────────────────────────────────── */
+
+export interface AnalyticsTotals {
+  readonly ordersCount: number;
+  readonly cancelledOrders: number;
+  readonly itemsSold: number;
+  readonly newCustomers: number;
+  readonly returningCustomers: number;
+  readonly grossSalesCents: number;
+  readonly discountsCents: number;
+  readonly refundsCents: number;
+  readonly netSalesCents: number;
+  readonly taxesCents: number;
+  readonly shippingCents: number;
+  readonly aovCents: number;
+  readonly currency: string;
+}
+
+export interface AnalyticsDay {
+  readonly date: string;
+  readonly ordersCount: number;
+  readonly itemsSold: number;
+  readonly newCustomers: number;
+  readonly netSalesCents: number;
+  readonly grossSalesCents: number;
+  readonly refundsCents: number;
+}
+
+export interface AnalyticsSummaryResponse {
+  readonly range: { days: number; since: string };
+  readonly totals: AnalyticsTotals;
+  readonly series: readonly AnalyticsDay[];
+}
+
+export interface TopProductRow {
+  readonly productId: string;
+  readonly title: string;
+  readonly unitsSold: number;
+  readonly revenueCents: number;
+}
+
+export interface TopCustomerRow {
+  readonly customerId: string;
+  readonly email: string | null;
+  readonly firstName: string | null;
+  readonly lastName: string | null;
+  readonly ordersCount: number;
+  readonly totalSpentCents: number;
+}
+
+/* ── Catalog ─────────────────────────────────────────────────────────────── */
+
+export interface ProductRow {
+  readonly id: string;
+  readonly title: string;
+  readonly status: ProductStatus;
+  readonly vendor: string | null;
+  readonly productType: string | null;
+  readonly tags: readonly string[];
+  readonly handle: string | null;
+  readonly updatedAt: string;
+  readonly shopifyUpdatedAt: string | null;
+}
+
+export interface VariantRow {
+  readonly id: string;
+  readonly title: string | null;
+  readonly sku: string | null;
+  readonly price: string;
+  readonly compareAtPrice: string | null;
+  readonly inventoryItemId: string | null;
+  readonly position: number | null;
+  readonly barcode: string | null;
+}
+
+/** GET /products/:id — full synced catalog row (additive M3 route). */
+export interface ProductDetailRow extends ProductRow {
+  readonly shopifyProductId: string;
+  readonly bodyHtml: string | null;
+  readonly publishedAt: string | null;
+  readonly shopifyCreatedAt: string | null;
+  readonly createdAt: string;
+}
+
+export interface CustomerRow {
+  readonly id: string;
+  readonly email: string | null;
+  readonly firstName: string | null;
+  readonly lastName: string | null;
+  readonly phone: string | null;
+  readonly ordersCount: number;
+  readonly totalSpent: string;
+  readonly acceptsMarketing: boolean;
+  readonly tags: readonly string[];
+}
+
+export interface CustomerDetailResponse {
+  readonly customer: CustomerRow;
+  readonly metrics: {
+    readonly ordersCount: number;
+    readonly totalSpentCents: number;
+    readonly aovCents: number;
+    readonly firstOrderAt: string | null;
+    readonly lastOrderAt: string | null;
+  } | null;
+  readonly recentOrders: readonly OrderRow[];
+}
+
+export interface OrderRow {
+  readonly id: string;
+  readonly name: string;
+  readonly orderNumber: number | null;
+  readonly email: string | null;
+  readonly financialStatus: string | null;
+  readonly fulfillmentStatus: string | null;
+  readonly currency: string;
+  readonly totalPrice: string;
+  readonly processedAt: string | null;
+  readonly createdAt: string;
+}
+
+export interface LineItemRow {
+  readonly id: string;
+  readonly title: string;
+  readonly quantity: number;
+  readonly price: string;
+  readonly sku: string | null;
+}
+
+export interface OrderDetailResponse {
+  readonly order: OrderRow;
+  readonly lineItems: readonly LineItemRow[];
+}
+
+export interface InventoryLevelRow {
+  readonly id: string;
+  readonly available: number;
+  readonly locationName: string;
+  readonly sku: string | null;
+  readonly variantTitle: string | null;
+  readonly productTitle: string;
+  readonly updatedAt: string;
+}
+
+/* ── Notifications ───────────────────────────────────────────────────────── */
+
+export interface NotificationRow {
+  readonly id: string;
+  readonly storeId: string;
+  readonly userId: string | null;
+  readonly category: NotificationCategory;
+  readonly title: string;
+  readonly body: string;
+  readonly actionUrl: string | null;
+  readonly readAt: string | null;
+  readonly createdAt: string;
+}
+
+/* ── Search / Audit ──────────────────────────────────────────────────────── */
+
+export interface SearchGroup<T> {
+  readonly permitted: boolean;
+  readonly total: number;
+  readonly items: readonly T[];
+}
+
+export interface GlobalSearchResponse {
+  readonly query: string;
+  readonly groups: {
+    readonly products: SearchGroup<{ id: string; title: string; status: string; handle: string | null }>;
+    readonly customers: SearchGroup<{ id: string; email: string | null; name: string }>;
+    readonly orders: SearchGroup<{ id: string; name: string; email: string | null; financialStatus: string | null }>;
+  };
+}
+
+export interface AuditLogRow {
+  readonly id: string;
+  readonly action: string;
+  readonly entityType: string | null;
+  readonly entityId: string | null;
+  readonly result: "SUCCESS" | "FAILURE";
+  readonly ip: string | null;
+  readonly userAgent: string | null;
+  readonly userId: string | null;
+  readonly metadata: Record<string, unknown>;
+  readonly createdAt: string;
+}
+
+export const NotificationCategories = {
+  Ai: "AI",
+  Orders: "ORDERS",
+  Inventory: "INVENTORY",
+  Billing: "BILLING",
+  Security: "SECURITY",
+  Automation: "AUTOMATION",
+  System: "SYSTEM",
+} as const satisfies Record<string, NC>;

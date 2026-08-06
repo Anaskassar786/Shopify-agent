@@ -44,6 +44,9 @@ const envSchema = z
 
     SHOPIFY_BILLING_PLAN: z.string().min(1).optional(),
 
+    /** Embedded web app bundle location (M3). Default: apps/web/dist. */
+    WEB_DIST_DIR: z.string().min(1).optional(),
+
     SMTP_HOST: optionalSecret,
     SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
     SMTP_USER: optionalSecret,

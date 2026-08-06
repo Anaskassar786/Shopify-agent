@@ -1,0 +1,139 @@
+/**
+ * PROFIT TOOL AI — design tokens (P9). Single source of truth for color,
+ * spacing, radius, elevation and typography. Consumed two ways:
+ *   1. Tailwind v4 `@theme` mapping → utilities (bg-canvas, text-muted,
+ *      border-subtle, shadow-card, rounded-lg, font-sans, ...),
+ *   2. raw var(--pf-*) for chart SVGs and exceptional inline styles.
+ *
+ * Themes: dark is DEFAULT (P9); [data-theme="light"] overrides; "system" is
+ * resolved by ThemeProvider (writes the resolved theme, never "system").
+ * Every AAA-critical pair verified for contrast against its surface.
+ */
+
+/* Dark-first declarations on :root (default theme). */
+@theme {
+  /* Surfaces */
+  --color-canvas: #0b0e17;
+  --color-surface: #12162882;
+  --color-surface-solid: #121628;
+  --color-surface-raised: #1a2038;
+  --color-overlay: #05070cd9;
+
+  /* Lines */
+  --color-subtle: #232a45;
+  --color-strong: #35406b;
+
+  /* Text */
+  --color-foreground: #eef1fb;
+  --color-muted: #9aa5c8;
+  --color-faint: #5d6788;
+
+  /* Brand */
+  --color-primary: #6d6af8;
+  --color-primary-strong: #5753e8;
+  --color-primary-soft: #6d6af81f;
+  --color-on-primary: #ffffff;
+  --color-accent: #22d3ee;
+
+  /* State */
+  --color-success: #34d399;
+  --color-success-soft: #34d3991f;
+  --color-warning: #fbbf24;
+  --color-warning-soft: #fbbf241f;
+  --color-danger: #f87171;
+  --color-danger-soft: #f871711f;
+  --color-info: #60a5fa;
+  --color-info-soft: #60a5fa1f;
+
+  /* AI layer (P9: AI-confidence colors) */
+  --color-ai: #a78bfa;
+  --color-ai-soft: #a78bfa1f;
+  --color-ai-strong: #8b5cf6;
+
+  /* Charts — ordered series palette (P9 chart colors) */
+  --color-chart-1: #6d6af8;
+  --color-chart-2: #22d3ee;
+  --color-chart-3: #34d399;
+  --color-chart-4: #fbbf24;
+  --color-chart-5: #f87171;
+  --color-chart-6: #a78bfa;
+
+  /* Typography */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
+    monospace;
+
+  /* Radius (P9: sm/md/lg/xl) */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* Elevation */
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.32), 0 8px 24px rgb(3 5 12 / 0.28);
+  --shadow-modal: 0 12px 40px rgb(2 4 10 / 0.55);
+  --shadow-drawer: -12px 0 40px rgb(2 4 10 / 0.45);
+  --shadow-dropdown: 0 8px 28px rgb(2 4 10 / 0.45);
+
+  /* Transitions */
+  --transition-fast: 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Light theme overrides — full token replacement, no partial flips. */
+@theme inline {
+}
+
+:root[data-theme="light"] {
+  --color-canvas: #f4f6fc;
+  --color-surface: #ffffffd9;
+  --color-surface-solid: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-overlay: #1a2038b3;
+
+  --color-subtle: #dde3f0;
+  --color-strong: #c3ccdf;
+
+  --color-foreground: #17203a;
+  --color-muted: #4c5878;
+  --color-faint: #94a0be;
+
+  --color-primary: #5753e8;
+  --color-primary-strong: #4540d0;
+  --color-primary-soft: #5753e814;
+  --color-on-primary: #ffffff;
+
+  --color-success: #0d9f6e;
+  --color-success-soft: #0d9f6e14;
+  --color-warning: #b45309;
+  --color-warning-soft: #b4530914;
+  --color-danger: #dc2626;
+  --color-danger-soft: #dc262614;
+  --color-info: #2563eb;
+  --color-info-soft: #2563eb14;
+
+  --color-ai: #7c3aed;
+  --color-ai-soft: #7c3aed14;
+  --color-ai-strong: #6d28d9;
+
+  --color-chart-1: #5753e8;
+  --color-chart-2: #0891b2;
+  --color-chart-3: #0d9f6e;
+  --color-chart-4: #b45309;
+  --color-chart-5: #dc2626;
+  --color-chart-6: #7c3aed;
+
+  --shadow-card: 0 1px 2px rgb(23 32 58 / 0.06), 0 8px 24px rgb(23 32 58 / 0.08);
+  --shadow-modal: 0 12px 40px rgb(23 32 58 / 0.20);
+  --shadow-drawer: -12px 0 40px rgb(23 32 58 / 0.16);
+  --shadow-dropdown: 0 8px 28px rgb(23 32 58 / 0.14);
+}
+
+/* Signal every token-driven control to animate theme switches smoothly. */
+:root {
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}

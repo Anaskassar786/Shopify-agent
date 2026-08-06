@@ -15,6 +15,7 @@
     "@profit/crypto": "workspace:*",
     "@profit/db": "workspace:*",
     "@profit/logger": "workspace:*",
+    "@profit/notifications": "workspace:*",
     "@profit/queue": "workspace:*",
     "@profit/shopify": "workspace:*",
     "@profit/sync": "workspace:*",

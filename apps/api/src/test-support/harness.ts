@@ -5,7 +5,8 @@ import { Writable } from "node:stream";
 import type { Express } from "express";
 import { SignJWT } from "jose";
 import { vi } from "vitest";
-import { MemoryCache } from "@profit/cache";
+import { MemoryCache, MemoryPubSub } from "@profit/cache";
+import { NotificationService } from "@profit/notifications";
 import { seedPlatformCatalogs, type ProfitDb } from "@profit/db";
 import { createTestDatabase } from "@profit/db/testing";
 import { JobPersistence, MemoryJobQueue } from "@profit/queue";
@@ -30,6 +31,10 @@ import { shopifyRouter } from "../modules/shopify/shopify.router";
 import { storeRouter } from "../modules/store/store.router";
 import { syncRouter } from "../modules/sync/sync.router";
 import { analyticsRouter } from "../modules/analytics/analytics.router";
+import { auditLogsRouter } from "../modules/audit/audit.router";
+import { subscriptionRouter } from "../modules/billing/subscription.router";
+import { notificationsRouter } from "../modules/notifications/notifications.router";
+import { searchRouter } from "../modules/search/search.router";
 import {
   customersRouter,
   inventoryRouter,
@@ -98,6 +103,7 @@ export async function buildTestEnvironment(): Promise<TestEnvironment> {
 
   const sink = new Writable({ write: (_chunk, _enc, cb) => cb() });
   const logger = createLogger({ level: "fatal", service: "api-test", environment: "test", destination: sink });
+  const pubsub = new MemoryPubSub();
 
   const encryption = EncryptionService.forTestKey(4242);
   const audit = new AuditService(db, logger);
@@ -182,7 +188,7 @@ export async function buildTestEnvironment(): Promise<TestEnvironment> {
       shopify: shopifyRouter({ oauth, webhooks, logger }),
       apiV1: {
         auth: authRouter({ auth, jwt }),
-        store: storeRouter({ db, jwt }),
+        store: storeRouter({ db, jwt, audit }),
         sync: syncRouter({ db, jwt, queue, persistence, cache }),
         analytics: analyticsRouter({
           db,
@@ -193,6 +199,14 @@ export async function buildTestEnvironment(): Promise<TestEnvironment> {
         customers: customersRouter({ db, jwt }),
         orders: ordersRouter({ db, jwt }),
         inventory: inventoryRouter({ db, jwt }),
+        notifications: notificationsRouter({
+          db,
+          jwt,
+          notifications: new NotificationService(db, pubsub),
+        }),
+        search: searchRouter({ db, jwt }),
+        auditLogs: auditLogsRouter({ db, jwt }),
+        subscription: subscriptionRouter({ db, jwt, audit, logger }),
       },
     },
   });

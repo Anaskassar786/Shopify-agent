@@ -15,6 +15,7 @@ import {
 import { requireActiveStore, requireAppAuth, requirePermission } from "../../middleware/auth.middleware";
 import { getRequestContext } from "../../lib/context/request-context";
 import { successEnvelope } from "../../lib/http/envelope";
+import { parsePageParams, type PageParams } from "../../lib/http/pagination";
 import { NotFoundError, ValidationError } from "../../lib/errors";
 import type { JwtService } from "../auth/jwt.service";
 
@@ -28,17 +29,6 @@ import type { JwtService } from "../auth/jwt.service";
 export interface CatalogRouterDeps {
   readonly db: ProfitDb;
   readonly jwt: JwtService;
-}
-
-interface PageParams {
-  page: number;
-  pageSize: number;
-}
-
-function parsePage(query: Record<string, unknown>): PageParams {
-  const page = Math.max(Number(query["page"] ?? 1) || 1, 1);
-  const pageSize = Math.min(Math.max(Number(query["limit"] ?? 25) || 25, 1), 100);
-  return { page, pageSize };
 }
 
 async function paged<TItem>(
@@ -64,7 +54,7 @@ export function productsRouter(deps: CatalogRouterDeps): ExpressRouter {
     try {
       if (req.appAuth === undefined) throw new Error("auth context missing after guard");
       const storeId = req.appAuth.storeId;
-      const page = parsePage(req.query);
+      const page = parsePageParams(req.query);
       const search = typeof req.query["q"] === "string" ? req.query["q"] : undefined;
       const result = await withStoreScope(deps.db, storeId, async (tx) => {
         const conditions = [
@@ -90,6 +80,37 @@ export function productsRouter(deps: CatalogRouterDeps): ExpressRouter {
       });
       const { items, meta } = await paged(result.items, result.total, page);
       res.status(200).json(successEnvelope(getRequestContext(), items, { meta }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * Single product by id (M3 product detail page). Returns the catalog row as
+   * synced — variants stay at /:id/variants (list resource), same shape as
+   * customers/orders detail endpoints.
+   */
+  router.get("/:id", requirePermission("products:read"), async (req, res, next) => {
+    try {
+      if (req.appAuth === undefined) throw new Error("auth context missing after guard");
+      const storeId = req.appAuth.storeId;
+      const productId = String(req.params["id"]);
+      const rows = await withStoreScope(deps.db, storeId, async (tx) =>
+        tx
+          .select()
+          .from(shopifyProducts)
+          .where(
+            and(
+              eq(shopifyProducts.id, productId),
+              eq(shopifyProducts.storeId, storeId),
+              sql`${shopifyProducts.deletedAt} IS NULL`,
+            ),
+          )
+          .limit(1),
+      );
+      const product = rows[0];
+      if (product === undefined) throw new NotFoundError("Product", productId);
+      res.status(200).json(successEnvelope(getRequestContext(), product));
     } catch (error) {
       next(error);
     }
@@ -137,7 +158,7 @@ export function customersRouter(deps: CatalogRouterDeps): ExpressRouter {
     try {
       if (req.appAuth === undefined) throw new Error("auth context missing after guard");
       const storeId = req.appAuth.storeId;
-      const page = parsePage(req.query);
+      const page = parsePageParams(req.query);
       const search = typeof req.query["q"] === "string" ? req.query["q"] : undefined;
       const result = await withStoreScope(deps.db, storeId, async (tx) => {
         const conditions = [
@@ -223,7 +244,7 @@ export function ordersRouter(deps: CatalogRouterDeps): ExpressRouter {
     try {
       if (req.appAuth === undefined) throw new Error("auth context missing after guard");
       const storeId = req.appAuth.storeId;
-      const page = parsePage(req.query);
+      const page = parsePageParams(req.query);
       const financial = typeof req.query["financial_status"] === "string"
         ? req.query["financial_status"]
         : undefined;
@@ -292,7 +313,7 @@ export function inventoryRouter(deps: CatalogRouterDeps): ExpressRouter {
     try {
       if (req.appAuth === undefined) throw new Error("auth context missing after guard");
       const storeId = req.appAuth.storeId;
-      const page = parsePage(req.query);
+      const page = parsePageParams(req.query);
       const lowStockRaw = req.query["below"];
       const below = lowStockRaw !== undefined ? Number(lowStockRaw) : undefined;
       if (lowStockRaw !== undefined && (!Number.isFinite(below) || (below ?? 0) < 0)) {

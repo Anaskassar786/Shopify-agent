@@ -47,11 +47,13 @@ export const SyncStoreFullJob: JobDefinition<SyncStoreFullPayload> = {
   timeoutMs: 10 * 60_000,
 };
 
+/** Group membership for fan-in: which modules belong to THIS run group. */
 export interface SyncModulePayload {
   readonly storeId: string;
   readonly module: SyncModule;
   readonly mode: (typeof SyncMode)[keyof typeof SyncMode];
   readonly runGroupId?: string | undefined;
+  readonly groupModules?: readonly SyncModule[] | undefined;
 }
 
 export const SyncModuleJob: JobDefinition<SyncModulePayload> = {
@@ -62,6 +64,7 @@ export const SyncModuleJob: JobDefinition<SyncModulePayload> = {
     module: syncModuleSchema,
     mode: syncModeSchema,
     runGroupId: z.string().uuid().optional(),
+    groupModules: z.array(syncModuleSchema).min(1).optional(),
   }),
   attempts: 5,
   backoffBaseMs: 5_000,

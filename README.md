@@ -38,10 +38,10 @@ pnpm dev:worker                      # worker on :3100 (health) — BullMQ when 
 
 | Gate | Command | Standard |
 |---|---|---|
-| Types | `pnpm -r run typecheck` | TS strict, zero errors (10 projects) |
-| Tests | `pnpm -r run test` | all suites green = 240 |
+| Types | `pnpm -r run typecheck` | TS strict, zero errors (13 projects) |
+| Tests | `pnpm -r run test` | all suites green = 465 |
 | Coverage | per-package `vitest run --coverage` | gated ≥80 stmt / 75 branch |
-| Build | `pnpm -r run build` | api + worker bundle |
+| Build | `pnpm -r run build` | api + worker bundles, web vite build (lazy chunks) |
 | Migrations | `pnpm --filter @profit/db run generate` | schema changes = migrations only |
 
 CI: `.github/workflows/ci.yml` (typecheck → tests → build → integration vs real PG/Redis on push).
@@ -59,7 +59,8 @@ CI: `.github/workflows/ci.yml` (typecheck → tests → build → integration vs
 - ✅ **M0 Foundation** — monorepo, shared types, tenant schema + migrations, API skeleton (config/logging/envelope/errors/health)
 - ✅ **M1 Shopify App Core** — OAuth install (single-use state) · session-token→JWT auth with refresh rotation · AES-256-GCM token storage · HMAC + dedupe webhook intake (APP_UNINSTALLED + GDPR handled) · RBAC · Postgres RLS · [milestone doc](docs/architecture/M1-shopify-core.md)
 - ✅ **M2 Sync Engine + Data Plane** — `apps/worker` (BullMQ) + `@profit/queue`/`cache` ports with durable `background_jobs` mirror · 7 sync modules with cursor checkpoints, crash resume and incremental watermarks · durable webhook appliers (18 topics, replay-safe upserts) · subscription reconciliation + schedules · analytics pre-aggregation (4 metric tables, advisory-lock convergent) · tenant-versioned cache invalidation · `/sync` `/analytics` `/catalog` APIs · 240 tests · [milestone doc](docs/architecture/M2-sync-data-plane.md)
-- ◻ M3 Web Shell + Dashboard — next
+- ✅ **M3 Web Shell + Dashboard** — `packages/ui` design system (dark-default tokens, 14 components, SVG charts) · `apps/web` embedded app (App Bridge v4, one-origin serving from the API, lazy route chunks) · 15-section shell with realtime notification drawer + ⌘K palette/global search · live dashboard (revenue/orders/customers/AOV, store health, recent activity, inventory alerts) · catalog/inventory/audit/billing/settings pages · onboarding wizard + trial · offline-aware QueryBoundary everywhere · 121 new tests (465 total) · [milestone doc](docs/architecture/M3-web-shell-dashboard.md)
+- ◻ M4 AI Revenue Loop — next
 
-Migrations: `packages/db/drizzle` (0000 core · 0001 shopify core · 0002 RLS · 0003 data plane).
+Migrations: `packages/db/drizzle` (0000 core · 0001 shopify core · 0002 RLS · 0003 data plane · 0004 notifications+onboarding).
 Seed after migrate: `pnpm --filter @profit/db run seed`.

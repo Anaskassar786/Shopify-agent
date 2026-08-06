@@ -1,5 +1,5 @@
 import type { Server } from "node:http";
-import { createCache } from "@profit/cache";
+import { createCache, createPubSub } from "@profit/cache";
 import { EncryptionService } from "@profit/crypto";
 import { createDbClient, probeDbConnection } from "@profit/db";
 import { createLogger } from "@profit/logger";
@@ -79,13 +79,14 @@ export async function startWorker(): Promise<RunningWorker> {
   const db = createDbClient({ url: env.DATABASE_URL, maxConnections: 8 });
   const encryption = EncryptionService.create(env.ENCRYPTION_KEY, env.ENCRYPTION_KEY_PREVIOUS);
   const cache = createCache({ logger, redisUrl: env.REDIS_URL });
+  const pubsub = createPubSub({ logger, redisUrl: env.REDIS_URL });
   const queue = createJobQueue({
     logger,
     redisUrl: env.REDIS_URL,
     concurrency: env.WORKER_CONCURRENCY,
   });
   const persistence = new JobPersistence(db.db, logger);
-  const deps: WorkerDeps = { env, logger, db, queue, persistence, cache, encryption };
+  const deps: WorkerDeps = { env, logger, db, queue, persistence, cache, pubsub, encryption };
 
   persistence.attach(queue);
   registerWorkerJobs(deps);
@@ -117,6 +118,7 @@ export async function startWorker(): Promise<RunningWorker> {
     });
     await queue.close();
     await cache.close();
+    await pubsub.close();
     await db.close();
     logger.info("worker.shutdown.complete");
   };

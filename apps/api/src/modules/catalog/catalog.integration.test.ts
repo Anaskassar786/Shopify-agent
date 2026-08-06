@@ -151,6 +151,24 @@ describe("GET /api/v1/products", () => {
     expect(all.body.data).toHaveLength(2);
   });
 
+  it("resolves a single product by id for the detail page", async () => {
+    const res = await request(env.app)
+      .get(`/api/v1/products/${productUuid}`)
+      .set("authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    expect(res.body.data.id).toBe(productUuid);
+    expect(res.body.data.title).toBe("Alpha Runner");
+    expect(res.body.data).toHaveProperty("handle");
+  });
+
+  it("404s a single product for unknown ids via the envelope", async () => {
+    const res = await request(env.app)
+      .get("/api/v1/products/00000000-0000-0000-0000-000000000000")
+      .set("authorization", `Bearer ${accessToken}`)
+      .expect(404);
+    expect(res.body.errors[0].code).toBe("NOT_FOUND");
+  });
+
   it("serves variants for a product", async () => {
     const res = await request(env.app)
       .get(`/api/v1/products/${productUuid}/variants`)

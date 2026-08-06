@@ -9,14 +9,19 @@ export interface ApiV1Routers {
   readonly customers: ExpressRouter;
   readonly orders: ExpressRouter;
   readonly inventory: ExpressRouter;
+  readonly notifications: ExpressRouter;
+  readonly search: ExpressRouter;
+  readonly auditLogs: ExpressRouter;
+  readonly subscription: ExpressRouter;
 }
 
 /**
  * /api/v1 root. Domain modules register here as they land:
  *   M1: auth, store, (shopify mounted at root)
  *   M2: sync, analytics, products, customers, orders, inventory
+ *   M3: notifications, search, audit-logs, subscription (+ WS at /api/v1/realtime)
  *   M4: recommendations, automation
- *   M5: billing, admin
+ *   M5: billing (charges), admin
  * Versioning rule (P2): breaking changes ship under /api/v2; v1 stays stable.
  */
 export function createApiV1Router(modules: ApiV1Routers): ExpressRouter {
@@ -29,5 +34,9 @@ export function createApiV1Router(modules: ApiV1Routers): ExpressRouter {
   router.use("/customers", modules.customers);
   router.use("/orders", modules.orders);
   router.use("/inventory", modules.inventory);
+  router.use("/notifications", modules.notifications);
+  router.use("/search", modules.search);
+  router.use("/audit-logs", modules.auditLogs);
+  router.use("/subscription", modules.subscription);
   return router;
 }

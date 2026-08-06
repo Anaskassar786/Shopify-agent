@@ -70,6 +70,11 @@ export const storeSettings = pgTable(
     featureOverrides: jsonb("feature_overrides")
       .notNull()
       .default(sql`'{}'::jsonb`),
+    /** Set when the merchant finishes the onboarding wizard (P4 flow). */
+    onboardingCompletedAt: timestamp("onboarding_completed_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
   },
   (table) => [uniqueIndex("store_settings_store_unique").on(table.storeId)],
 );

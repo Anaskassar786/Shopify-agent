@@ -7,7 +7,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["src/**"],
-      exclude: ["src/**/*.test.ts", "src/index.ts", "src/redis.cache.ts"],
+      exclude: ["src/**/*.test.ts", "src/index.ts", "src/redis.cache.ts", "src/redis.pubsub.ts"],
       thresholds: {
         statements: 80,
         branches: 75,

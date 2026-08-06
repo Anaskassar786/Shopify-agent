@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Writable } from "node:stream";
-import { MemoryCache } from "@profit/cache";
+import { MemoryCache, MemoryPubSub } from "@profit/cache";
 import { EncryptionService } from "@profit/crypto";
 import type { DbClient, ProfitDb } from "@profit/db";
 import { shopifySessions, stores, webhookLogs } from "@profit/db";
@@ -27,6 +27,7 @@ export interface WorkerTestEnvironment {
   readonly deps: WorkerDeps;
   readonly queue: MemoryJobQueue;
   readonly cache: MemoryCache;
+  readonly pubsub: MemoryPubSub;
   readonly logger: Logger;
   readonly env: WorkerEnv;
   readonly storeId: string;
@@ -74,11 +75,12 @@ export async function buildWorkerTestEnvironment(
   const encryption = EncryptionService.forTestKey(777);
   const queue = new MemoryJobQueue({ logger, concurrency: 8, dispatchIntervalMs: 2 });
   const cache = new MemoryCache();
+  const pubsub = new MemoryPubSub();
   const persistence = new JobPersistence(db, logger);
   // PGlite drives the same ProfitDb surface; the pool handle is only used by
   // the health probe, which the harness replaces.
   const dbHandle = { db, sql: null, close: () => Promise.resolve() } as unknown as DbClient;
-  const deps: WorkerDeps = { env, logger, db: dbHandle, queue, persistence, cache, encryption };
+  const deps: WorkerDeps = { env, logger, db: dbHandle, queue, persistence, cache, pubsub, encryption };
 
   persistence.attach(queue);
   registerWorkerJobs(deps);
@@ -129,6 +131,7 @@ export async function buildWorkerTestEnvironment(
     deps,
     queue,
     cache,
+    pubsub,
     logger,
     env,
     storeId,

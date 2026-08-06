@@ -39,7 +39,7 @@ export function createApp(deps: AppDeps): Express {
 
   app.use(requestContextMiddleware());
   app.use(httpLoggerMiddleware(deps.logger));
-  app.use(helmet());
+  app.use(helmet(buildHelmetOptions()));
   app.use(cors(buildCorsOptions(deps.env)));
   app.use(compression());
 
@@ -63,6 +63,32 @@ export function createApp(deps: AppDeps): Express {
   app.use(errorHandlerMiddleware(deps.logger));
 
   return app;
+}
+
+function buildHelmetOptions(): Parameters<typeof helmet>[0] {
+  // Embedded-app CSP (M3): the shell must be frameable ONLY inside Shopify
+  // Admin / the shop admin domain, and App Bridge + analytics beacons load
+  // from Shopify's CDN/API hosts. Everything else stays 'self'.
+  return {
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        "script-src": ["'self'", "https://cdn.shopify.com"],
+        "frame-ancestors": ["https://admin.shopify.com", "https://*.myshopify.com"],
+        "img-src": ["'self'", "data:", "https://cdn.shopify.com"],
+        "connect-src": [
+          "'self'",
+          "wss:",
+          "https://cdn.shopify.com",
+          "https://monorail-edge.shopifysvc.com",
+        ],
+        "style-src": ["'self'", "'unsafe-inline'"],
+        "frame-src": ["https://admin.shopify.com"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "same-site" },
+  };
 }
 
 function buildCorsOptions(env: Env): cors.CorsOptions {

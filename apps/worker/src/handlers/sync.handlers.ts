@@ -13,6 +13,11 @@ import {
 } from "@profit/sync";
 import { recordWorkerAudit } from "./audit";
 import type { WorkerDeps } from "./deps";
+import {
+  emitSyncModuleCompleted,
+  notifyFullRunCompleted,
+  notifySyncModuleFailed,
+} from "./realtime";
 
 /** Modules whose completion requires an analytics recompute. */
 const ANALYTICS_TOUCHING = new Set<SyncModule>([SyncModule.Orders, SyncModule.Customers]);
@@ -30,7 +35,13 @@ export function fullSyncHandler(deps: WorkerDeps): JobHandler<SyncStoreFullPaylo
       await deps.persistence.enqueuePersistent(
         deps.queue,
         SyncModuleJob,
-        { storeId: ctx.payload.storeId, module, mode: SyncMode.Full, runGroupId },
+        {
+          storeId: ctx.payload.storeId,
+          module,
+          mode: SyncMode.Full,
+          runGroupId,
+          groupModules: modules,
+        },
         { jobId: `sync:module:${ctx.payload.storeId}:${module}:${runGroupId}` },
       );
     }
@@ -43,8 +54,10 @@ export function fullSyncHandler(deps: WorkerDeps): JobHandler<SyncStoreFullPaylo
  */
 export function moduleSyncHandler(deps: WorkerDeps): JobHandler<SyncModulePayload> {
   return async (ctx) => {
-    const { storeId, module, mode, runGroupId } = ctx.payload;
-    const outcome = await runModuleSync(
+    const { storeId, module, mode, runGroupId, groupModules } = ctx.payload;
+    let outcome;
+    try {
+      outcome = await runModuleSync(
       {
         db: deps.db.db,
         encryption: deps.encryption,
@@ -56,7 +69,28 @@ export function moduleSyncHandler(deps: WorkerDeps): JobHandler<SyncModulePayloa
         },
       },
       { storeId, module, mode, ...(runGroupId !== undefined ? { runGroupId } : {}) },
-    );
+      );
+    } catch (error) {
+      // Notify once — on the FINAL attempt (queue retries otherwise).
+      if (ctx.attempt >= ctx.maxAttempts) {
+        try {
+          await notifySyncModuleFailed(
+            { db: deps.db.db, pubsub: deps.pubsub, logger: deps.logger },
+            { storeId, module, error },
+          );
+        } catch (notifyError) {
+          deps.logger.error({ err: notifyError, storeId, module }, "sync.failure_notify.failed");
+        }
+      }
+      throw error;
+    }
+
+    await emitSyncModuleCompleted(deps.pubsub, {
+      storeId,
+      module,
+      runId: outcome.runId,
+      stats: { ...outcome.stats },
+    });
 
     const invalidator = new CacheInvalidator(deps.cache, deps.logger);
     const domains = ANALYTICS_TOUCHING.has(module)
@@ -73,13 +107,33 @@ export function moduleSyncHandler(deps: WorkerDeps): JobHandler<SyncModulePayloa
       metadata: { module, mode, stats: outcome.stats, resumed: outcome.resumedFromCursor !== null },
     });
 
-    // Analytics trigger: group fan-in OR standalone orders/customers runs.
+    // Analytics trigger: group fan-in (against the GROUP'S OWN module list —
+    // partial full-sync groups complete correctly) OR standalone
+    // orders/customers runs.
+    const effectiveGroup = groupModules ?? FULL_SYNC_ORDER;
     let refreshAnalyticsNow = ANALYTICS_TOUCHING.has(module) && runGroupId === undefined;
     if (runGroupId !== undefined && !refreshAnalyticsNow) {
-      const { pending } = await modulesCompletedInGroup(deps.db.db, storeId, runGroupId, FULL_SYNC_ORDER);
+      const { pending } = await modulesCompletedInGroup(
+        deps.db.db,
+        storeId,
+        runGroupId,
+        effectiveGroup,
+      );
       if (pending.length === 0) {
         refreshAnalyticsNow = true;
         deps.logger.info({ storeId, runGroupId }, "sync.full.fanin_complete");
+        // The "your data is ready" merchant signal is reserved for TRUE full
+        // runs (all modules) — partial groups refresh analytics silently.
+        if (effectiveGroup.length === FULL_SYNC_ORDER.length) {
+          try {
+            await notifyFullRunCompleted(
+              { db: deps.db.db, pubsub: deps.pubsub, logger: deps.logger },
+              { storeId, runGroupId, modulesCompleted: FULL_SYNC_ORDER.length },
+            );
+          } catch (notifyError) {
+            deps.logger.error({ err: notifyError, storeId, runGroupId }, "sync.fanin_notify.failed");
+          }
+        }
       }
     }
     if (refreshAnalyticsNow) {

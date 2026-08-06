@@ -15,6 +15,7 @@ import { rateLimitMiddleware, type RateLimitRule } from "../../middleware/rate-l
 import { ForbiddenError, ValidationError } from "../../lib/errors";
 import { getRequestContext } from "../../lib/context/request-context";
 import { successEnvelope } from "../../lib/http/envelope";
+import { parsePageParams } from "../../lib/http/pagination";
 import type { JwtService } from "../auth/jwt.service";
 import type { CachePort } from "@profit/cache";
 
@@ -171,8 +172,7 @@ export function syncRouter(deps: SyncRouterDeps): ExpressRouter {
   router.get("/history", requirePermission("store:read"), async (req, res, next) => {
     try {
       if (req.appAuth === undefined) throw new Error("auth context missing after guard");
-      const page = Math.max(Number(req.query["page"] ?? 1) || 1, 1);
-      const pageSize = Math.min(Math.max(Number(req.query["limit"] ?? 25) || 25, 1), 100);
+      const { page, pageSize } = parsePageParams(req.query);
       const storeId = req.appAuth.storeId;
       const rows = await deps.db
         .select()

@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
+import type { PubSubPort } from "@profit/cache";
 import { Router } from "express";
-import { createCache, createStoreCache } from "@profit/cache";
+import { createCache, createPubSub, createStoreCache } from "@profit/cache";
+import { NotificationService } from "@profit/notifications";
 import { createDbClient, probeDbConnection, type DbClient } from "@profit/db";
 import { Environment } from "@profit/types";
 import { createJobQueue, JobPersistence } from "@profit/queue";
@@ -21,6 +23,12 @@ import { shopifyRouter } from "./modules/shopify/shopify.router";
 import { storeRouter } from "./modules/store/store.router";
 import { syncRouter } from "./modules/sync/sync.router";
 import { analyticsRouter } from "./modules/analytics/analytics.router";
+import { auditLogsRouter } from "./modules/audit/audit.router";
+import { subscriptionRouter } from "./modules/billing/subscription.router";
+import { notificationsRouter } from "./modules/notifications/notifications.router";
+import { searchRouter } from "./modules/search/search.router";
+import { createRealtimeGateway } from "./modules/realtime/gateway";
+import { createSpaHandler, mountSpa } from "./static/spa";
 import {
   customersRouter,
   inventoryRouter,
@@ -63,16 +71,37 @@ export async function startServer(): Promise<RunningServer> {
     ...(db !== undefined ? { dbProbe: () => probeDbConnection(db.sql) } : {}),
   });
 
-  const routers = buildRouters(env, logger, db);
+  const pubsub = createPubSub({ logger, redisUrl: env.REDIS_URL });
+  const routers = buildRouters(env, logger, db, { pubsub });
 
   const app = createApp({ env, logger, healthService, routers });
+
+  // M3: embedded web app hosting (no-op when the bundle is not present).
+  const spa = createSpaHandler({
+    distDir: env.WEB_DIST_DIR ?? new URL("../../web/dist", import.meta.url).pathname,
+    shopifyApiKey: env.SHOPIFY_API_KEY,
+    logger,
+  });
+  mountSpa(app, spa);
+
+  // M3: realtime gateway — JWT-authed WS fan-out of tenant pub/sub events.
+  const gateway = createRealtimeGateway({
+    jwt: new JwtService({
+      accessSecret: requireEnv(env, "JWT_SECRET"),
+      accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
+    }),
+    pubsub,
+    logger,
+  });
 
   const server = await new Promise<Server>((resolve, reject) => {
     const instance = app.listen(env.PORT, HOST, () => resolve(instance));
     instance.on("error", reject);
   });
 
-  logger.info({ host: HOST, port: env.PORT, version: env.APP_VERSION }, "api.listening");
+  gateway.attach(server);
+
+  logger.info({ host: HOST, port: env.PORT, version: env.APP_VERSION, spa: spa.available }, "api.listening");
 
   let shuttingDown = false;
   const shutdown = async (): Promise<void> => {
@@ -83,6 +112,8 @@ export async function startServer(): Promise<RunningServer> {
       server.close(() => resolve());
       server.closeAllConnections();
     });
+    await gateway.close();
+    await pubsub.close();
     if (db !== undefined) await db.close();
     logger.info("api.shutdown.complete");
   };
@@ -103,7 +134,12 @@ export async function startServer(): Promise<RunningServer> {
   return { server, env, logger, shutdown };
 }
 
-function buildRouters(env: Env, logger: Logger, db: DbClient | undefined): AppRouters {
+function buildRouters(
+  env: Env,
+  logger: Logger,
+  db: DbClient | undefined,
+  infra: { pubsub: PubSubPort },
+): AppRouters {
   const shopifyConfigured =
     db !== undefined &&
     env.SHOPIFY_API_KEY !== undefined &&
@@ -221,7 +257,7 @@ function buildRouters(env: Env, logger: Logger, db: DbClient | undefined): AppRo
     shopify: shopifyRouter({ oauth, webhooks, logger }),
     apiV1: {
       auth: authRouter({ auth, jwt }),
-      store: storeRouter({ db: db.db, jwt }),
+      store: storeRouter({ db: db.db, jwt, audit }),
       sync: syncRouter({ db: db.db, jwt, queue, persistence, cache }),
       analytics: analyticsRouter({
         db: db.db,
@@ -232,6 +268,20 @@ function buildRouters(env: Env, logger: Logger, db: DbClient | undefined): AppRo
       customers: customersRouter({ db: db.db, jwt }),
       orders: ordersRouter({ db: db.db, jwt }),
       inventory: inventoryRouter({ db: db.db, jwt }),
+      notifications: notificationsRouter({
+        db: db.db,
+        jwt,
+        notifications: new NotificationService(db.db, infra.pubsub),
+      }),
+      search: searchRouter({ db: db.db, jwt }),
+      auditLogs: auditLogsRouter({ db: db.db, jwt }),
+      subscription: subscriptionRouter({
+        db: db.db,
+        jwt,
+        audit,
+        logger,
+        defaultPlanCode: env.SHOPIFY_BILLING_PLAN,
+      }),
     },
   };
 }
@@ -247,5 +297,9 @@ function stubApiV1(): AppRouters["apiV1"] {
     customers: Router(),
     orders: Router(),
     inventory: Router(),
+    notifications: Router(),
+    search: Router(),
+    auditLogs: Router(),
+    subscription: Router(),
   };
 }

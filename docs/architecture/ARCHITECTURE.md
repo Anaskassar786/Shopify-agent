@@ -49,7 +49,8 @@ Shopify-agent/
 │   ├── shopify/             # Shopify transport: HTTP client · REST/GraphQL paginators · throttle · HMAC (M2)
 │   ├── crypto/              # AES-256-GCM helpers, shared by api + worker (M2)
 │   ├── logger/              # pino logger factory, shared by api + worker (M2)
-│   ├── ui/                  # Design system (tokens → Tailwind theme, components) (M3)
+│   ├── notifications/       # NotificationService: persist → publish · audience-scoped reads (M3)
+│   ├── ui/                  # Design system (tokens → Tailwind theme, components, SVG charts) (M3)
 │   └── (config presets live at repo root: tsconfig.base.json)
 ├── docs/
 │   ├── spec/                # 12-part PRD (source of truth)
@@ -99,7 +100,7 @@ Shopify-agent/
 - Modules: products, customers, orders, inventory, collections, discounts, metafields. *(M2 delivered, in `FULL_SYNC_ORDER` so FK resolution is local.)*
 - Modes: initial full (post-install, paginated cursor walk, resumable checkpoints in `sync_history`), incremental (webhook-driven), manual, scheduled (safety-net cron). *(M2 as-built: FULL runs resume from the last per-page `page_info` checkpoint; incrementals use last-completed `started_at − 60s` overlap watermarks; inventory+metafields run FULL daily since they lack `updated_at_min`.)*
 - Conflict rule: Shopify is source of truth (last-write-wins) — documented; local-only projection fields never overwritten.
-- Cache invalidation after writes. *(M2 as-built: tenant-versioned keyspace — `CacheInvalidator` INCRs `v:{storeId}:{domain}` so an entire tenant domain invalidates in O(1); no pub/sub needed yet — pub/sub remains the multi-replica event channel if cross-service push is required later.)*
+- Cache invalidation after writes. *(M2 as-built: tenant-versioned keyspace — `CacheInvalidator` INCRs `v:{storeId}:{domain}` so an entire tenant domain invalidates in O(1). M3 added the pub/sub port for the realtime event channel (worker → API WS gateway → browser): `packages/cache createPubSub` with memory + Redis drivers, per-tenant channels `rt:{storeId}`, at-most-once delivery documented in the port contract.)*
 
 ### 4.4 AI Layer (ports & adapters)
 ```
@@ -132,10 +133,11 @@ apps/api/src/ai/
 - Attribution: discount-usage tags, draft-order tags, campaign UTM → `merchant_actions` ↔ `revenue_metrics` join; modeled estimates labeled as modeled.
 
 ### 4.8 Frontend (apps/web)
-- React 19, Vite, React Router, TanStack Query (+Table), RHF+Zod, Tailwind (tokens from `packages/ui`), Framer Motion, Recharts, Lucide.
-- Shopify App Bridge v4: session-token fetch → Authorization header on every API call; no cookies inside iframe.
-- Route-per-sidebar-section (15 sections, Part 9); feature-folder per domain; skeleton/empty/error states standardized via `packages/ui` primitives; command palette + global search (Postgres FTS endpoint).
-- `AiConfidenceBadge`, `PriorityBadge` etc. use WCAG-checked token pairs (build-time lint).
+- React 19, Vite, React Router, TanStack Query, Tailwind v4 (tokens from `packages/ui`), Lucide. *(M3 as-built deviations from the plan, per rule 6: **hand-rolled SVG charts instead of Recharts** — exact token colors, ~1.6 KB chunk, deterministic math, no 400 KB chart lib; **no React-Hook-Form/Framer Motion yet** — forms are one-field controlled inputs where RHF would be ceremony; both remain addable without rewrites if M4–M6 forms grow.)*
+- Shopify App Bridge v4 (CDN, meta-tag auto-init): Shopify session token → `/auth/session` exchange → first-party JWT in memory + rotating refresh (`profit.refresh.v1`); every API call carries `Authorization: Bearer`; no cookies inside the iframe.
+- Route-per-sidebar-section (15 sections, Part 9) driven by ONE section registry (`shell/sections.ts`) that powers nav, palette, guards and tests; every page is a lazy chunk; feature-folder per domain; skeleton/empty/error/offline states standardized via `QueryBoundary` + `packages/ui` primitives; command palette ⌘K + grouped global search (`/search`, per-permission groups).
+- Realtime: WS at `/api/v1/realtime` (JWT on upgrade) → per-store channel `rt:{storeId}` via `packages/cache` pub/sub (memory driver in dev/test, Redis in prod) → client maps event kinds to TanStack invalidations + toasts. The socket never writes cache; REST stays the source of truth.
+- `AiConfidenceBadge`, `PriorityBadge` etc. use WCAG-checked token pairs (build-time lint). *(M3: ai/confidence tokens landed in `tokens.css`; badges arrive with the M4 AI surfaces.)*
 
 ### 4.9 Cross-cutting
 - **Config:** zod-validated env at boot, fail-fast; per-environment; never logged.
