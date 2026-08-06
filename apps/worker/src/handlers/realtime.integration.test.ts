@@ -41,6 +41,7 @@ function stubShopifyForAllModules(): void {
     return jsonResponse({
       custom_collections: [], smart_collections: [], customers: [], orders: [],
       locations: [], inventory_levels: [], price_rules: [], metafields: [],
+      checkouts: [], // M4: 8th module
       data: { products: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } },
     });
   }));
@@ -58,7 +59,7 @@ afterAll(async () => {
 });
 
 describe("full-run group completion", () => {
-  it("fires the notification + event exactly once when all 7 modules land", async () => {
+  it("fires the notification + event exactly once when all 8 modules land", async () => {
     stubShopifyForAllModules();
     const runGroupId = "33333333-4444-4444-8444-333333333333";
     await env.deps.persistence.enqueuePersistent(
@@ -75,7 +76,7 @@ describe("full-run group completion", () => {
       .where(eq(notifications.storeId, env.storeId));
     expect(rows).toHaveLength(1);
     expect(rows[0]?.title).toBe("Data sync complete");
-    expect(rows[0]?.body).toContain("7");
+    expect(rows[0]?.body).toContain("8");
 
     const completionEvents = events.filter(
       (e) => e.kind === RealtimeEventKind.SyncFullRunCompleted,
@@ -83,14 +84,14 @@ describe("full-run group completion", () => {
     expect(completionEvents).toHaveLength(1);
     expect(completionEvents[0]?.payload).toMatchObject({
       runGroupId,
-      modulesCompleted: 7,
+      modulesCompleted: 8,
     });
 
-    // Per-module progress events streamed too (7 completed, no rows for them).
+    // Per-module progress events streamed too (8 completed, no rows for them).
     const moduleEvents = events.filter(
       (e) => e.kind === RealtimeEventKind.SyncModuleCompleted,
     );
-    expect(moduleEvents.length).toBe(7);
+    expect(moduleEvents.length).toBe(8);
 
     // Fan-in triggered the analytics refresh job.
     const jobs = await env.db

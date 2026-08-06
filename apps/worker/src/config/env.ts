@@ -25,6 +25,18 @@ const schema = z.object({
   SHOPIFY_HTTP_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(6),
   SHOPIFY_HTTP_BASE_DELAY_MS: z.coerce.number().int().min(1).max(10_000).default(250),
   ANALYTICS_REFRESH_INTERVAL_MS: z.coerce.number().int().min(300_000).default(21_600_000),
+  /** M4 AI plane — absent GEMINI_API_KEY = provider unavailable (failsafe, not an error). */
+  GEMINI_API_KEY: z.string().min(1).optional(),
+  AI_DEFAULT_GEMINI_MODEL: z.string().min(1).default("gemini-2.0-flash"),
+  AI_RUN_INTERVAL_MS: z.coerce.number().int().min(3_600_000).default(21_600_000),
+  AI_MEASURE_INTERVAL_MS: z.coerce.number().int().min(3_600_000).default(86_400_000),
+  AI_MAX_AGENT_CALLS_PER_RUN: z.coerce.number().int().min(1).max(10).default(5),
+  /** M4 email tool — absent SMTP set = email tool unavailable (failsafe). */
+  SMTP_HOST: z.string().min(1).optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASSWORD: z.string().min(1).optional(),
+  EMAIL_FROM: z.string().email().default("noreply@profittool.ai"),
 });
 
 const hostedSchema = schema.superRefine((env, ctx) => {

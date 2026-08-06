@@ -3,6 +3,7 @@ import type { CacheDomain } from "@profit/cache";
 import { ShopifyWebhookTopic } from "@profit/types";
 import { shopifyGetJson, type ShopifyAdminContext } from "@profit/shopify";
 import {
+  restCheckoutSchema,
   restCollectionSchema,
   restCustomerSchema,
   restInventoryLevelSchema,
@@ -15,6 +16,7 @@ import {
   deleteCustomerByShopifyId,
   deletePriceRuleByShopifyId,
   deleteProductByShopifyId,
+  upsertCheckouts,
   upsertCollections,
   upsertCustomers,
   upsertInventoryLevels,
@@ -155,6 +157,14 @@ const applyRefund: WebhookApplier = async (ctx) => {
   return { invalidate: ["analytics"], analyticsDates: [...refundDates] };
 };
 
+/** M4: checkouts feed the abandoned-cart engine — upsert-only (no deletes topic). */
+const applyCheckout: WebhookApplier = async (ctx) => {
+  const checkout = restCheckoutSchema.parse(ctx.payload);
+  await upsertCheckouts(ctx.db, ctx.storeId, [checkout]);
+  // No cache domain renders raw checkouts in v1; analytics spans derive from orders.
+  return { invalidate: [], analyticsDates: [] };
+};
+
 export const WEBHOOK_APPLIERS: Readonly<Record<string, WebhookApplier>> = {
   [ShopifyWebhookTopic.OrdersCreate]: applyOrderPayload,
   [ShopifyWebhookTopic.OrdersUpdated]: applyOrderPayload,
@@ -174,6 +184,8 @@ export const WEBHOOK_APPLIERS: Readonly<Record<string, WebhookApplier>> = {
   [ShopifyWebhookTopic.DiscountsDelete]: applyDiscountDelete,
   [ShopifyWebhookTopic.InventoryLevelsUpdate]: applyInventoryLevel,
   [ShopifyWebhookTopic.RefundsCreate]: applyRefund,
+  [ShopifyWebhookTopic.CheckoutsCreate]: applyCheckout,
+  [ShopifyWebhookTopic.CheckoutsUpdate]: applyCheckout,
 };
 
 export function applierForTopic(topic: string): WebhookApplier | null {

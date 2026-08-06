@@ -19,6 +19,7 @@ const syncModuleSchema = z.enum([
   SyncModule.Collections,
   SyncModule.Discounts,
   SyncModule.Metafields,
+  SyncModule.Checkouts, // M4: 8th module — without this the queue rejects every checkouts job
 ]);
 
 const syncModeSchema = z.enum([

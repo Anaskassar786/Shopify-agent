@@ -65,7 +65,7 @@ export const SubscriptionStatus = {
 export type SubscriptionStatus =
   (typeof SubscriptionStatus)[keyof typeof SubscriptionStatus];
 
-/** Sync engine (P2). */
+/** Sync engine (P2). CHECKOUTS added in M4 — the abandoned-cart data plane. */
 export const SyncModule = {
   Products: "PRODUCTS",
   Customers: "CUSTOMERS",
@@ -74,6 +74,7 @@ export const SyncModule = {
   Collections: "COLLECTIONS",
   Discounts: "DISCOUNTS",
   Metafields: "METAFIELDS",
+  Checkouts: "CHECKOUTS",
 } as const;
 export type SyncModule = (typeof SyncModule)[keyof typeof SyncModule];
 
@@ -212,6 +213,99 @@ export const AiProviderId = {
 } as const;
 export type AiProviderId = (typeof AiProviderId)[keyof typeof AiProviderId];
 
+/**
+ * Recommendation taxonomy (P3 example list, v1 slice). Each type is produced
+ * by exactly one agent + rule pairing in the catalog — the engine can never
+ * emit an untraceable recommendation.
+ */
+export const RecommendationType = {
+  RecoverAbandonedCart: "RECOVER_ABANDONED_CART",
+  Restock: "RESTOCK",
+  RemoveDeadStock: "REMOVE_DEAD_STOCK",
+  TargetVip: "TARGET_VIP",
+  WinbackInactive: "WINBACK_INACTIVE",
+  LaunchPromotion: "LAUNCH_PROMOTION",
+  ReduceRefundRisk: "REDUCE_REFUND_RISK",
+  RevenueDeclineReview: "REVENUE_DECLINE_REVIEW",
+} as const;
+export type RecommendationType =
+  (typeof RecommendationType)[keyof typeof RecommendationType];
+
+/**
+ * Executable action attached to a recommendation (P10 action shape).
+ * ADVISORY carries no v1 tool: approval records the merchant's decision and
+ * notifies — the platform never fakes an external side effect.
+ */
+export const ActionType = {
+  SendRecoveryEmail: "SEND_RECOVERY_EMAIL",
+  CreateDiscountCode: "CREATE_DISCOUNT_CODE",
+  Advisory: "ADVISORY",
+} as const;
+export type ActionType = (typeof ActionType)[keyof typeof ActionType];
+
+/** What kicked off an engine run (P10 scheduled + real-time triggers). */
+export const AiRunTrigger = {
+  Scheduled: "SCHEDULED",
+  Manual: "MANUAL",
+  Event: "EVENT",
+} as const;
+export type AiRunTrigger = (typeof AiRunTrigger)[keyof typeof AiRunTrigger];
+
+/** Run ledger outcome. PROVIDER_UNAVAILABLE is the P3 failsafe, not an error. */
+export const AiRunStatus = {
+  Completed: "COMPLETED",
+  ProviderUnavailable: "PROVIDER_UNAVAILABLE",
+  Failed: "FAILED",
+} as const;
+export type AiRunStatus = (typeof AiRunStatus)[keyof typeof AiRunStatus];
+
+/** Single provider call outcome (P10 per-call logging). */
+export const AiCallStatus = {
+  Succeeded: "SUCCEEDED",
+  Failed: "FAILED",
+} as const;
+export type AiCallStatus = (typeof AiCallStatus)[keyof typeof AiCallStatus];
+
+/** Tool execution ledger (action_executions). */
+export const ExecutionStatus = {
+  Pending: "PENDING",
+  Running: "RUNNING",
+  Succeeded: "SUCCEEDED",
+  Failed: "FAILED",
+} as const;
+export type ExecutionStatus = (typeof ExecutionStatus)[keyof typeof ExecutionStatus];
+
+/** How attributed revenue was linked to an executed action (deterministic). */
+export const AttributionMethod = {
+  CheckoutToken: "CHECKOUT_TOKEN",
+  DiscountCode: "DISCOUNT_CODE",
+  CustomerWindow: "CUSTOMER_WINDOW",
+} as const;
+export type AttributionMethod =
+  (typeof AttributionMethod)[keyof typeof AttributionMethod];
+
+/** Recommendation event taxonomy — the append-only audit trail (P3). */
+export const RecommendationEventType = {
+  Created: "CREATED",
+  Approved: "APPROVED",
+  Rejected: "REJECTED",
+  AutoApproved: "AUTO_APPROVED",
+  ExecutionQueued: "EXECUTION_QUEUED",
+  Executed: "EXECUTED",
+  ExecutionFailed: "EXECUTION_FAILED",
+  Expired: "EXPIRED",
+  Measured: "MEASURED",
+} as const;
+export type RecommendationEventType =
+  (typeof RecommendationEventType)[keyof typeof RecommendationEventType];
+
+export const EventActorType = {
+  Merchant: "MERCHANT",
+  System: "SYSTEM",
+  Ai: "AI",
+} as const;
+export type EventActorType = (typeof EventActorType)[keyof typeof EventActorType];
+
 /** Catalog entity states mirrored from Shopify Admin (P2 data plane). */
 export const ProductStatus = {
   Active: "ACTIVE",
@@ -264,6 +358,7 @@ export const ShopifyWebhookTopic = {
   FulfillmentsCreate: "fulfillments/create",
   RefundsCreate: "refunds/create",
   CheckoutsCreate: "checkouts/create",
+  CheckoutsUpdate: "checkouts/update",
   /** Mandatory compliance topics (App Review requirement). */
   CustomersDataRequest: "customers/data_request",
   CustomersRedact: "customers/redact",

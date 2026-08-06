@@ -19,6 +19,8 @@ export const RealtimeEventKind = {
   SyncFullRunCompleted: "sync.full-run.completed",
   AnalyticsRefreshed: "analytics.refreshed",
   NotificationCreated: "notification.created",
+  RecommendationCreated: "recommendation.created",
+  RecommendationExecuted: "recommendation.executed",
 } as const;
 export type RealtimeEventKind = (typeof RealtimeEventKind)[keyof typeof RealtimeEventKind];
 
@@ -52,6 +54,18 @@ export interface RealtimeEventPayloads {
     readonly dateTo: string | null;
   };
   readonly [RealtimeEventKind.NotificationCreated]: RealtimeNotificationPayload;
+  readonly [RealtimeEventKind.RecommendationCreated]: {
+    readonly recommendationId: string;
+    readonly type: string;
+    readonly title: string;
+    readonly priority: string;
+  };
+  readonly [RealtimeEventKind.RecommendationExecuted]: {
+    readonly recommendationId: string;
+    readonly type: string;
+    readonly actionType: string;
+    readonly succeeded: boolean;
+  };
 }
 
 export interface RealtimeEvent<TKind extends RealtimeEventKind = RealtimeEventKind> {

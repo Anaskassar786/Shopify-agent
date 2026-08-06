@@ -3,6 +3,7 @@ import { SyncMode, SyncModule } from "@profit/types";
 import { CollectionType, MetafieldOwnerType } from "@profit/types";
 import {
   pageParser,
+  restCheckoutSchema,
   restCollectionSchema,
   restCustomerSchema,
   restDiscountCodeSchema,
@@ -15,6 +16,7 @@ import {
 } from "../dto";
 import {
   mergeStats,
+  upsertCheckouts,
   upsertCollections,
   upsertCustomers,
   upsertDiscountCodes,
@@ -299,6 +301,24 @@ const metafieldsModule: SyncModuleImpl = {
   },
 };
 
+/** M4: checkouts — REST supports updated_at_min, so watermark-incremental works. */
+const checkoutsModule: SyncModuleImpl = {
+  id: SyncModule.Checkouts,
+  async sync(ctx) {
+    const paginator = restClient(ctx);
+    for await (const page of paginator.paginate<unknown>(
+      "checkouts",
+      incrementalParams(ctx),
+      ctx.resumeCursor,
+      pageOptions(ctx),
+    )) {
+      const checkouts = pageParser("checkouts", restCheckoutSchema).parse(page.body);
+      const stats = await upsertCheckouts(ctx.db, ctx.storeId, checkouts);
+      await ctx.checkpoint.pageComplete(page.nextPageInfo, stats);
+    }
+  },
+};
+
 export const SYNC_MODULES: Record<SyncModule, SyncModuleImpl> = {
   [SyncModule.Products]: productsModule,
   [SyncModule.Customers]: customersModule,
@@ -307,6 +327,7 @@ export const SYNC_MODULES: Record<SyncModule, SyncModuleImpl> = {
   [SyncModule.Collections]: collectionsModule,
   [SyncModule.Discounts]: discountsModule,
   [SyncModule.Metafields]: metafieldsModule,
+  [SyncModule.Checkouts]: checkoutsModule,
 };
 
 /** Order matters: products before orders (FK resolution), locations in-module first. */
@@ -318,4 +339,5 @@ export const FULL_SYNC_ORDER: readonly SyncModule[] = [
   SyncModule.Inventory,
   SyncModule.Discounts,
   SyncModule.Metafields,
+  SyncModule.Checkouts,
 ];

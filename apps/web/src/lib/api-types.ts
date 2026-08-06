@@ -310,3 +310,172 @@ export const NotificationCategories = {
   Automation: "AUTOMATION",
   System: "SYSTEM",
 } as const satisfies Record<string, NC>;
+
+/* ── AI revenue loop (M4) ────────────────────────────────────────────────── */
+
+export interface RecommendationRow {
+  readonly id: string;
+  readonly storeId: string;
+  readonly type: string;
+  readonly agentId: string;
+  readonly ruleId: string;
+  readonly title: string;
+  readonly description: string;
+  readonly reasoning: readonly string[];
+  readonly priority: string;
+  readonly confidence: number;
+  readonly riskLevel: string;
+  readonly estimatedRevenueCents: number;
+  readonly estimatedCostCents: number;
+  readonly subjects: unknown;
+  readonly actionType: string;
+  readonly actionParams: unknown;
+  readonly status: string;
+  readonly stateVersion: number;
+  readonly decidedByUserId: string | null;
+  readonly decidedAt: string | null;
+  readonly decisionReason: string | null;
+  readonly expiresAt: string | null;
+  readonly createdAt: string;
+}
+
+/** Immutable evidence snapshot written with the recommendation (P10 explainability). */
+export interface EvidenceSnapshot {
+  readonly computedAt: string;
+  readonly storeHealthScore: number;
+  readonly facts: readonly string[];
+  readonly rule: { readonly id: string; readonly version: number };
+  readonly estimates: {
+    readonly revenueCents: number;
+    readonly costCents: number;
+    readonly roiMultiple: number | null;
+    readonly expectationBasis: string;
+  };
+  readonly calibration: {
+    readonly modelConfidence: number;
+    readonly finalConfidence: number;
+    readonly tier: string;
+    readonly modelPriority: string;
+    readonly finalPriority: string;
+    readonly modelRisk: string;
+    readonly finalRisk: string;
+  };
+  readonly contextDigest: {
+    readonly netCents: number;
+    readonly trendPct: number;
+    readonly ordersCount: number;
+    readonly customersTotal: number;
+    readonly abandonedCount: number;
+    readonly refundsRatePct: number;
+  };
+  readonly model: {
+    readonly provider: string | null;
+    readonly promptId: string;
+    readonly promptVersion: string;
+  };
+}
+
+export interface RecommendationEventRow {
+  readonly id: string;
+  readonly event: string;
+  readonly actorType: string;
+  readonly actorUserId: string | null;
+  readonly fromStatus: string | null;
+  readonly toStatus: string | null;
+  readonly details: unknown;
+  readonly createdAt: string;
+}
+
+export interface ActionExecutionRow {
+  readonly id: string;
+  readonly actionType: string;
+  readonly status: string;
+  readonly actionPreview: unknown;
+  readonly toolRef: unknown;
+  readonly errorMessage: string | null;
+  readonly attempts: number;
+  readonly createdAt: string;
+  readonly finishedAt: string | null;
+}
+
+export interface RecommendationDetail extends RecommendationRow {
+  readonly evidence: EvidenceSnapshot | null;
+  readonly events: readonly RecommendationEventRow[];
+  readonly executions: readonly ActionExecutionRow[];
+}
+
+export interface HealthComponentRow {
+  readonly key: string;
+  readonly label: string;
+  readonly score: number;
+  readonly weight: number;
+  readonly reason: string;
+}
+
+export interface AiOverviewResponse {
+  readonly engine: {
+    readonly lastRunAt: string | null;
+    readonly lastRunStatus: string | null;
+    readonly lastRunTrigger: string | null;
+    readonly runsLast7d: number;
+    readonly costMicrosLast7d: number;
+    readonly tokensLast7d: number;
+  };
+  readonly health: {
+    readonly score: number | null;
+    readonly computedAt: string | null;
+    readonly components: { readonly components: readonly HealthComponentRow[] } | null;
+  };
+  readonly open: {
+    readonly pendingApproval: number;
+    readonly approved: number;
+    readonly executing: number;
+    readonly highPriorityOpen: number;
+  };
+  readonly outcomes: {
+    readonly acceptanceRatePct: number | null;
+    readonly attributedRevenueCents: number;
+    readonly attributedOrders: number;
+  };
+  readonly recentEvents: readonly {
+    readonly id: string;
+    readonly recommendationId: string;
+    readonly event: string;
+    readonly actorType: string;
+    readonly title: string;
+    readonly type: string;
+    readonly createdAt: string;
+  }[];
+}
+
+export interface AutomationPolicyRow {
+  readonly mode: "MANUAL" | "SEMI_AUTOMATIC" | "FULLY_AUTOMATIC";
+  readonly abandonedCartEnabled: boolean;
+  readonly abandonedCartDelayHours: number;
+  readonly abandonedCartMinValueCents: number;
+  readonly abandonedCartDiscountPercent: number;
+  readonly maxAutoDiscountPercent: number;
+  readonly maxAutoApproveEstimatedRevenueCents: number;
+}
+
+export interface AutomationOverviewResponse {
+  readonly policy: AutomationPolicyRow;
+  readonly executions: readonly {
+    readonly id: string;
+    readonly recommendationId: string;
+    readonly recommendationTitle: string;
+    readonly type: string;
+    readonly actionType: string;
+    readonly status: string;
+    readonly errorMessage: string | null;
+    readonly attempts: number;
+    readonly preview: unknown;
+    readonly createdAt: string;
+    readonly finishedAt: string | null;
+  }[];
+  readonly outcomes: {
+    readonly attributedRevenueCents: number;
+    readonly attributedOrders: number;
+    readonly measuredCount: number;
+  };
+}

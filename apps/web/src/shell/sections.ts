@@ -64,8 +64,8 @@ export const APP_SECTIONS: readonly AppSection[] = [
     icon: Sparkles,
     group: "Intelligence",
     permission: "recommendations:read",
-    availability: "roadmap",
-    milestone: "M4",
+    availability: "live",
+    milestone: null,
     description: "The AI engine's home: live decision feed, autonomy controls and profit impact.",
   },
   {
@@ -75,8 +75,8 @@ export const APP_SECTIONS: readonly AppSection[] = [
     icon: Lightbulb,
     group: "Intelligence",
     permission: "recommendations:read",
-    availability: "roadmap",
-    milestone: "M4",
+    availability: "live",
+    milestone: null,
     description: "Ranked, revenue-attributed actions the AI proposes — approve, reject, automate.",
   },
   {
@@ -130,8 +130,8 @@ export const APP_SECTIONS: readonly AppSection[] = [
     icon: Workflow,
     group: "Intelligence",
     permission: "automation:read",
-    availability: "roadmap",
-    milestone: "M4",
+    availability: "live",
+    milestone: null,
     description: "Rules that let the AI execute approved playbooks on its own.",
   },
   {

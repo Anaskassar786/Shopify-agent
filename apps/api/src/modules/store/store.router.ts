@@ -43,6 +43,29 @@ const patchSettingsSchema = z
       })
       .strict()
       .optional(),
+    /** M4: autopilot guardrails + abandoned-cart policy (P3 automation modes). */
+    automationPreferences: z
+      .object({
+        mode: z.enum(["MANUAL", "SEMI_AUTOMATIC", "FULLY_AUTOMATIC"]).optional(),
+        abandonedCart: z
+          .object({
+            enabled: z.boolean().optional(),
+            delayHours: z.number().int().min(1).max(72).optional(),
+            minCartValueCents: z.number().int().min(0).max(100_000_000).optional(),
+            discountPercent: z.number().int().min(0).max(50).optional(),
+          })
+          .strict()
+          .optional(),
+        autopilot: z
+          .object({
+            maxDiscountPercent: z.number().int().min(5).max(50).optional(),
+            maxEstimatedRevenueCents: z.number().int().min(0).max(1_000_000_000).optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, "at least one settings group is required");
@@ -109,9 +132,33 @@ export function storeRouter(deps: {
           patch.aiPreferences !== undefined
             ? { ...(current.aiPreferences as Record<string, unknown>), ...patch.aiPreferences }
             : (current.aiPreferences as Record<string, unknown>);
+        // Nested merge for autopilot groups — partial updates must not drop siblings.
+        const currentAutomation = current.automationPreferences as Record<string, unknown>;
+        const currentAbandoned = (currentAutomation["abandonedCart"] ?? {}) as Record<string, unknown>;
+        const currentAutopilot = (currentAutomation["autopilot"] ?? {}) as Record<string, unknown>;
+        const nextAutomation =
+          patch.automationPreferences !== undefined
+            ? {
+                ...currentAutomation,
+                ...patch.automationPreferences,
+                abandonedCart: {
+                  ...currentAbandoned,
+                  ...(patch.automationPreferences.abandonedCart ?? {}),
+                },
+                autopilot: {
+                  ...currentAutopilot,
+                  ...(patch.automationPreferences.autopilot ?? {}),
+                },
+              }
+            : currentAutomation;
         const saved = await tx
           .update(storeSettings)
-          .set({ branding: nextBranding, aiPreferences: nextAi, updatedAt: new Date() })
+          .set({
+            branding: nextBranding,
+            aiPreferences: nextAi,
+            automationPreferences: nextAutomation,
+            updatedAt: new Date(),
+          })
           .where(eq(storeSettings.storeId, storeId))
           .returning();
         const row = saved[0];

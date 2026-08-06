@@ -40,6 +40,7 @@ describe("domain enums", () => {
       "COLLECTIONS",
       "DISCOUNTS",
       "METAFIELDS",
+      "CHECKOUTS", // M4: abandoned-checkout recovery feed (8th module)
     ]);
     expect(Object.values(enums.ShopifyWebhookTopic)).toContain("app/uninstalled");
     expect(Object.values(enums.ShopifyWebhookTopic)).toContain("customers/data_request");

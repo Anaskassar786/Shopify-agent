@@ -49,8 +49,8 @@ describe("AppLayout", () => {
     for (const group of ["Overview", "Intelligence", "Catalog", "System"]) {
       expect(screen.getAllByText(group).length).toBeGreaterThan(0);
     }
-    // Roadmap chips are honest milestone markers (M4 ×3, M6 ×1).
-    expect(screen.getAllByText("M4").length).toBe(3);
+    // Roadmap chips are honest milestone markers (campaigns only after M4 shipped).
+    expect(screen.queryByText("M4")).not.toBeInTheDocument();
     expect(screen.getAllByText("M6").length).toBe(1);
   });
 

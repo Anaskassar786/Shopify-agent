@@ -157,9 +157,50 @@ export const restOrderSchema = z
     customer: z.object({ id: shopifyId }).passthrough().nullable().optional(),
     line_items: z.array(restLineItemSchema).default([]),
     refunds: z.array(restRefundSchema).default([]),
+    /** M4 (additive): checkout linkage + discount attribution inputs. */
+    checkout_token: nullable(z.string()),
+    discount_codes: z
+      .array(
+        z
+          .object({ code: z.string(), amount: z.union([z.string(), z.number()]).optional(), type: z.string().optional() })
+          .passthrough(),
+      )
+      .default([]),
   })
   .passthrough();
 export type RestOrder = z.infer<typeof restOrderSchema>;
+
+// ── Checkouts (M4: the abandoned-cart data plane) ───────────────────────────
+
+export const restCheckoutLineItemSchema = z
+  .object({
+    title: nullable(z.string()),
+    quantity: z.number().int().default(1),
+    price: money.default("0"),
+    product_id: shopifyId.nullable().optional(),
+    variant_id: shopifyId.nullable().optional(),
+  })
+  .passthrough();
+
+export const restCheckoutSchema = z
+  .object({
+    id: shopifyId,
+    token: z.string().min(1),
+    email: nullable(z.string()),
+    currency: z.string().default("USD"),
+    total_price: money.default("0"),
+    /** Recovery URL: REST names it abandoned_checkout_url; some payloads carry web_url. */
+    abandoned_checkout_url: nullable(z.string()),
+    web_url: nullable(z.string()),
+    completed_at: nullable(timestamp),
+    closed_at: nullable(timestamp),
+    customer: z.object({ id: shopifyId }).passthrough().nullable().optional(),
+    line_items: z.array(restCheckoutLineItemSchema).default([]),
+    created_at: nullable(timestamp),
+    updated_at: nullable(timestamp),
+  })
+  .passthrough();
+export type RestCheckout = z.infer<typeof restCheckoutSchema>;
 
 // ── Locations + inventory levels ─────────────────────────────────────────────
 

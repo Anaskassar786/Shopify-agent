@@ -88,7 +88,7 @@ describe("POST /api/v1/sync/:module", () => {
       .post("/api/v1/sync/full")
       .set("authorization", `Bearer ${accessToken}`)
       .expect(202);
-    expect(res.body.data.modules).toHaveLength(7);
+    expect(res.body.data.modules).toHaveLength(8); // M4: +CHECKOUTS
     expect(res.body.data.runGroupId).toBeTruthy();
     await env.settle();
     const jobs = await env.db
@@ -185,6 +185,7 @@ describe("GET /api/v1/sync/status + /history", () => {
       "INVENTORY",
       "DISCOUNTS",
       "METAFIELDS",
+      "CHECKOUTS", // M4: 8th sync module
     ]);
   });
 

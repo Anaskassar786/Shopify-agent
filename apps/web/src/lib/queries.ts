@@ -9,10 +9,12 @@ import type { PaginationMeta } from "@profit/types";
 import type { NotificationCategory, SyncModule } from "@profit/types";
 import { useApiClient } from "./auth-context";
 import { ApiError } from "./api-client";
-import { QK } from "./query-keys";
+import { AI_QK, QK } from "./query-keys";
 import type {
+  AiOverviewResponse,
   AnalyticsSummaryResponse,
   AuditLogRow,
+  AutomationOverviewResponse,
   CustomerDetailResponse,
   CustomerRow,
   GlobalSearchResponse,
@@ -23,6 +25,8 @@ import type {
   Paged,
   ProductDetailRow,
   ProductRow,
+  RecommendationDetail,
+  RecommendationRow,
   StoreResponse,
   SubscriptionResponse,
   SyncHistoryRow,
@@ -72,6 +76,19 @@ export function useSubscriptionQuery(): UseQueryResult<SubscriptionResponse, Api
 export interface SettingsPatch {
   readonly branding?: { logoUrl?: string; primaryColor?: string };
   readonly aiPreferences?: { autonomyMode?: string; modelTierOverrides?: Record<string, string> };
+  readonly automationPreferences?: {
+    readonly mode?: "MANUAL" | "SEMI_AUTOMATIC" | "FULLY_AUTOMATIC";
+    readonly abandonedCart?: {
+      readonly enabled?: boolean;
+      readonly delayHours?: number;
+      readonly minCartValueCents?: number;
+      readonly discountPercent?: number;
+    };
+    readonly autopilot?: {
+      readonly maxDiscountPercent?: number;
+      readonly maxEstimatedRevenueCents?: number;
+    };
+  };
 }
 
 export function usePatchSettingsMutation(): UseMutationResult<unknown, ApiError, SettingsPatch> {
@@ -79,7 +96,11 @@ export function usePatchSettingsMutation(): UseMutationResult<unknown, ApiError,
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (patch: SettingsPatch) => client.patch(`${API}/store/settings`, patch),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: QK.store }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QK.store });
+      void queryClient.invalidateQueries({ queryKey: ["automation"] });
+      void queryClient.invalidateQueries({ queryKey: ["ai"] });
+    },
   });
 }
 
@@ -379,5 +400,102 @@ export function useGlobalSearchQuery(q: string): UseQueryResult<GlobalSearchResp
     queryFn: () => client.get<GlobalSearchResponse>(`${API}/search`, { q: trimmed }),
     enabled: trimmed.length >= 2,
     placeholderData: (previous) => previous,
+  });
+}
+
+/* ── AI revenue loop (M4) ────────────────────────────────────────────────── */
+
+export interface RecommendationFilters {
+  readonly page: number;
+  readonly status: string;
+  readonly priority: string;
+  readonly type: string;
+}
+
+export function useRecommendationsQuery(
+  filters: RecommendationFilters,
+): UseQueryResult<Paged<RecommendationRow>, ApiError> {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: AI_QK.recommendations(filters.page, filters.status, filters.priority, filters.type),
+    queryFn: async () => {
+      const result = await client.getWithMeta<readonly RecommendationRow[]>(`${API}/recommendations`, {
+        page: filters.page,
+        status: filters.status === "" ? undefined : filters.status,
+        priority: filters.priority === "" ? undefined : filters.priority,
+        type: filters.type === "" ? undefined : filters.type,
+      });
+      return toPaged(result.data, result.meta?.pagination, filters.page);
+    },
+  });
+}
+
+export function useRecommendationDetailQuery(
+  id: string,
+): UseQueryResult<RecommendationDetail, ApiError> {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: AI_QK.recommendation(id),
+    queryFn: () => client.get<RecommendationDetail>(`${API}/recommendations/${id}`),
+  });
+}
+
+export function useAiOverviewQuery(): UseQueryResult<AiOverviewResponse, ApiError> {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: AI_QK.aiOverview,
+    queryFn: () => client.get<AiOverviewResponse>(`${API}/ai/overview`),
+  });
+}
+
+export function useAutomationOverviewQuery(): UseQueryResult<AutomationOverviewResponse, ApiError> {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: AI_QK.automationOverview,
+    queryFn: () => client.get<AutomationOverviewResponse>(`${API}/automation/overview`),
+  });
+}
+
+/** Approve → server queues the tool execution (P3 human-in-the-loop). */
+export function useApproveRecommendationMutation(): UseMutationResult<RecommendationRow, ApiError, string> {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => client.post<RecommendationRow>(`${API}/recommendations/${id}/approve`, {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["recommendations"] });
+      void queryClient.invalidateQueries({ queryKey: ["ai"] });
+      void queryClient.invalidateQueries({ queryKey: ["automation"] });
+    },
+  });
+}
+
+/** Reject with an optional merchant reason — the learning loop's writer input. */
+export function useRejectRecommendationMutation(): UseMutationResult<
+  RecommendationRow,
+  ApiError,
+  { readonly id: string; readonly reason: string }
+> {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { readonly id: string; readonly reason: string }) =>
+      client.post<RecommendationRow>(`${API}/recommendations/${input.id}/reject`, {
+        reason: input.reason === "" ? undefined : input.reason,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["recommendations"] });
+      void queryClient.invalidateQueries({ queryKey: ["ai"] });
+    },
+  });
+}
+
+/** Manual engine run — 202 Accepted; the result lands via realtime invalidation. */
+export function useRunAnalysisMutation(): UseMutationResult<{ readonly jobId: string }, ApiError, void> {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => client.post<{ readonly jobId: string }>(`${API}/recommendations/run`, {}),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["ai"] }),
   });
 }

@@ -41,7 +41,7 @@ describe("section registry (P9: 15 surfaces)", () => {
 
   it("roadmap sections declare a milestone and live ones do not", () => {
     const roadmap = APP_SECTIONS.filter((s) => s.availability === "roadmap").map((s) => s.key);
-    expect(roadmap.sort()).toEqual(["ai-command-center", "automation", "campaigns", "recommendations"]);
+    expect(roadmap.sort()).toEqual(["campaigns"]); // M4 shipped ai-command-center, recommendations, automation
     for (const section of APP_SECTIONS) {
       if (section.availability === "roadmap") expect(section.milestone).not.toBeNull();
       else expect(section.milestone).toBeNull();

@@ -10,6 +10,7 @@ import { createLogger, type Logger } from "@profit/logger";
 import { JobPersistence, MemoryJobQueue } from "@profit/queue";
 import { loadWorkerEnv, type WorkerEnv } from "../config/env";
 import { registerWorkerJobs } from "../server";
+import type { AiProvider, EmailSender } from "@profit/ai";
 import type { WorkerDeps } from "../handlers/deps";
 
 /**
@@ -41,6 +42,9 @@ export interface WorkerTestEnvironment {
 export interface WorkerHarnessOptions {
   /** Optional per-test payload routing for the fetch stub. */
   readonly fetchRouter?: (url: string, body: unknown) => Response | Promise<Response>;
+  /** AI plane overrides — default null exercises the failsafe path. */
+  readonly aiProvider?: AiProvider | null;
+  readonly emailSender?: EmailSender | null;
 }
 
 export function jsonResponse(payload: unknown, init: { status?: number; headers?: Record<string, string> } = {}): Response {
@@ -80,7 +84,11 @@ export async function buildWorkerTestEnvironment(
   // PGlite drives the same ProfitDb surface; the pool handle is only used by
   // the health probe, which the harness replaces.
   const dbHandle = { db, sql: null, close: () => Promise.resolve() } as unknown as DbClient;
-  const deps: WorkerDeps = { env, logger, db: dbHandle, queue, persistence, cache, pubsub, encryption };
+  const deps: WorkerDeps = {
+    env, logger, db: dbHandle, queue, persistence, cache, pubsub, encryption,
+    aiProvider: options.aiProvider ?? null,
+    emailSender: options.emailSender ?? null,
+  };
 
   persistence.attach(queue);
   registerWorkerJobs(deps);

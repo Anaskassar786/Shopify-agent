@@ -11,6 +11,11 @@ import { seedPlatformCatalogs, type ProfitDb } from "@profit/db";
 import { createTestDatabase } from "@profit/db/testing";
 import { JobPersistence, MemoryJobQueue } from "@profit/queue";
 import {
+  AiExecuteDiscountActionJob,
+  AiExecuteEmailActionJob,
+  AiRunJob,
+} from "@profit/ai";
+import {
   ShopifyEnsureWebhooksJob,
   SyncModuleJob,
   SyncStoreFullJob,
@@ -34,6 +39,9 @@ import { analyticsRouter } from "../modules/analytics/analytics.router";
 import { auditLogsRouter } from "../modules/audit/audit.router";
 import { subscriptionRouter } from "../modules/billing/subscription.router";
 import { notificationsRouter } from "../modules/notifications/notifications.router";
+import { recommendationsRouter } from "../modules/ai/recommendations.router";
+import { aiRouter } from "../modules/ai/ai.router";
+import { automationRouter } from "../modules/ai/automation.router";
 import { searchRouter } from "../modules/search/search.router";
 import {
   customersRouter,
@@ -118,6 +126,9 @@ export async function buildTestEnvironment(): Promise<TestEnvironment> {
   queue.register(SyncStoreFullJob, () => Promise.resolve());
   queue.register(SyncModuleJob, () => Promise.resolve());
   queue.register(ShopifyEnsureWebhooksJob, () => Promise.resolve());
+  queue.register(AiRunJob, () => Promise.resolve());
+  queue.register(AiExecuteEmailActionJob, () => Promise.resolve());
+  queue.register(AiExecuteDiscountActionJob, () => Promise.resolve());
   await queue.start();
 
   const enqueueWebhookProcess = async (storeId: string, webhookLogId: string): Promise<void> => {
@@ -207,6 +218,9 @@ export async function buildTestEnvironment(): Promise<TestEnvironment> {
         search: searchRouter({ db, jwt }),
         auditLogs: auditLogsRouter({ db, jwt }),
         subscription: subscriptionRouter({ db, jwt, audit, logger }),
+        recommendations: recommendationsRouter({ db, jwt, queue, persistence, audit }),
+        ai: aiRouter({ db, jwt }),
+        automation: automationRouter({ db, jwt }),
       },
     },
   });

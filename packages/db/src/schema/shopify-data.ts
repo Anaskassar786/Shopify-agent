@@ -168,6 +168,10 @@ export const shopifyOrders = pgTable(
     cancelReason: varchar("cancel_reason", { length: 255 }),
     isTest: boolean("is_test").notNull().default(false),
     tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
+    /** M4 (additive): links the order back to its checkout for cart-recovery attribution. */
+    checkoutToken: varchar("checkout_token", { length: 128 }),
+    /** M4 (additive): [{ code, type }] as returned by Shopify — discount attribution input. */
+    discountCodes: jsonb("discount_codes").notNull().default(sql`'[]'::jsonb`),
     shopifyCreatedAt: timestamp("shopify_created_at", { withTimezone: true, mode: "date" }),
     shopifyUpdatedAt: timestamp("shopify_updated_at", { withTimezone: true, mode: "date" }),
   },
@@ -331,6 +335,43 @@ export const shopifyDiscountCodes = pgTable(
       table.shopifyDiscountCodeId,
     ),
     index("shopify_discount_codes_store_rule_idx").on(table.storeId, table.priceRuleId),
+  ],
+);
+
+/**
+ * Abandoned-checkout data plane (M4). The `token` is Shopify's stable
+ * identity and the attribution join key: orders created from a checkout carry
+ * the same token in shopify_orders.checkout_token. "Abandoned" is a computed
+ * state (created before the recovery horizon, completed_at NULL, no linked
+ * order) — never a mutable flag, so stale rows can't lie.
+ */
+export const shopifyCheckouts = pgTable(
+  "shopify_checkouts",
+  {
+    ...baseColumns,
+    storeId: uuid("store_id")
+      .notNull()
+      .references(() => stores.id, { onDelete: "cascade" }),
+    shopifyCheckoutId: varchar("shopify_checkout_id", { length: 64 }).notNull(),
+    token: varchar("token", { length: 128 }).notNull(),
+    email: varchar("email", { length: 320 }),
+    customerId: uuid("customer_id").references(() => shopifyCustomers.id, {
+      onDelete: "set null",
+    }),
+    currency: varchar("currency", { length: 3 }).notNull().default("USD"),
+    totalPrice: numeric("total_price", { precision: 14, scale: 2 }).notNull().default("0"),
+    /** Recovery URL Shopify generates (abandoned_checkout_url). */
+    webUrl: varchar("web_url", { length: 1024 }),
+    /** [{ title, quantity, priceCents?, productId? }] — compact render context for emails. */
+    lineItems: jsonb("line_items").notNull().default(sql`'[]'::jsonb`),
+    completedAt: timestamp("completed_at", { withTimezone: true, mode: "date" }),
+    closedAt: timestamp("closed_at", { withTimezone: true, mode: "date" }),
+    shopifyCreatedAt: timestamp("shopify_created_at", { withTimezone: true, mode: "date" }),
+    shopifyUpdatedAt: timestamp("shopify_updated_at", { withTimezone: true, mode: "date" }),
+  },
+  (table) => [
+    uniqueIndex("shopify_checkouts_store_token_unique").on(table.storeId, table.token),
+    index("shopify_checkouts_store_created_idx").on(table.storeId, table.shopifyCreatedAt),
   ],
 );
 

@@ -407,13 +407,14 @@ describe("scheduled maintenance", () => {
       if (url.includes("/custom_collections.json")) return jsonResponse({ custom_collections: [] });
       if (url.includes("/smart_collections.json")) return jsonResponse({ smart_collections: [] });
       if (url.includes("/price_rules.json")) return jsonResponse({ price_rules: [] });
+      if (url.includes("/checkouts.json")) return jsonResponse({ checkouts: [] }); // M4
       return jsonResponse({ errors: "unstubbed " + url }, { status: 500 });
     }));
     await env.queue.enqueue(SyncScheduledTickJob, {});
     await env.settle();
     const runs = await env.db.select().from(syncHistory).where(eq(syncHistory.storeId, env.storeId));
     const modules = runs.map((run) => run.module).sort();
-    expect(modules).toEqual(["COLLECTIONS", "CUSTOMERS", "DISCOUNTS", "ORDERS", "PRODUCTS"]);
+    expect(modules).toEqual(["CHECKOUTS", "COLLECTIONS", "CUSTOMERS", "DISCOUNTS", "ORDERS", "PRODUCTS"]);
     expect(runs.every((run) => run.status === SyncStatus.Completed)).toBe(true);
   });
 

@@ -72,6 +72,8 @@ const HOURLY_INCREMENTAL_MODULES: readonly SyncModule[] = [
   SyncModule.Orders,
   SyncModule.Collections,
   SyncModule.Discounts,
+  // M4: checkouts ride the hourly pass — near-real-time abandonment detection.
+  SyncModule.Checkouts,
 ];
 
 async function enqueueForAllActiveStores(

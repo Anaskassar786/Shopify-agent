@@ -260,9 +260,10 @@ describe("job contracts (producer/consumer drift = compile error)", () => {
 });
 
 describe("module registry", () => {
-  it("exposes exactly the 7 sync modules with implementations", () => {
+  it("exposes exactly the 8 sync modules with implementations", () => {
     expect(Object.keys(SYNC_MODULES).sort()).toEqual(
       [
+        SyncModule.Checkouts, // M4: abandoned-checkout recovery feed
         SyncModule.Collections,
         SyncModule.Customers,
         SyncModule.Discounts,
@@ -278,25 +279,27 @@ describe("module registry", () => {
   });
 
   it("FULL_SYNC_ORDER runs products before orders (FK resolution invariant)", () => {
-    expect(FULL_SYNC_ORDER).toHaveLength(7);
+    expect(FULL_SYNC_ORDER).toHaveLength(8);
     expect(FULL_SYNC_ORDER.indexOf(SyncModule.Products)).toBeLessThan(
       FULL_SYNC_ORDER.indexOf(SyncModule.Orders),
     );
     expect(FULL_SYNC_ORDER.indexOf(SyncModule.Customers)).toBeLessThan(
       FULL_SYNC_ORDER.indexOf(SyncModule.Orders),
     );
-    expect(new Set(FULL_SYNC_ORDER).size).toBe(7);
+    expect(new Set(FULL_SYNC_ORDER).size).toBe(8);
   });
 });
 
 describe("webhook applier registry", () => {
-  it("registers appliers for all 18 business topics", () => {
-    expect(REGISTERED_BUSINESS_TOPICS).toHaveLength(18);
+  it("registers appliers for all 20 business topics", () => { // M4: +checkouts/create, +checkouts/update
+    expect(REGISTERED_BUSINESS_TOPICS).toHaveLength(20);
     expect(REGISTERED_BUSINESS_TOPICS).toEqual(Object.keys(WEBHOOK_APPLIERS));
     expect(REGISTERED_BUSINESS_TOPICS).toContain("orders/create");
     expect(REGISTERED_BUSINESS_TOPICS).toContain("refunds/create");
     expect(REGISTERED_BUSINESS_TOPICS).toContain("inventory_levels/update");
     expect(REGISTERED_BUSINESS_TOPICS).toContain("discounts/delete");
+    expect(REGISTERED_BUSINESS_TOPICS).toContain("checkouts/create");
+    expect(REGISTERED_BUSINESS_TOPICS).toContain("checkouts/update");
   });
 
   it("applierForTopic resolves known topics and returns null for unknown", () => {

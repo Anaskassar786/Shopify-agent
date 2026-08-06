@@ -51,6 +51,8 @@ Shopify-agent/
 │   ├── logger/              # pino logger factory, shared by api + worker (M2)
 │   ├── notifications/       # NotificationService: persist → publish · audience-scoped reads (M3)
 │   ├── ui/                  # Design system (tokens → Tailwind theme, components, SVG charts) (M3)
+│   ├── ai/                  # AI decision engine: provider port+Gemini · context builder · rule catalog ·
+│   │                        #   calibration · recommendation service · executor · attribution (M4)
 │   └── (config presets live at repo root: tsconfig.base.json)
 ├── docs/
 │   ├── spec/                # 12-part PRD (source of truth)
@@ -104,19 +106,28 @@ Shopify-agent/
 
 ### 4.4 AI Layer (ports & adapters)
 ```
-packages/types        AiProvider port: completeStructured({role,context,schema,modelTier}) → typed JSON
-apps/api/src/ai/
-  ├── providers/gemini.provider.ts     ← only file importing @google/genai
-  ├── agents/                          BusinessAnalyst, CustomerIntelligence, RevenueRecovery,
-  │                                    ProductIntelligence, Inventory  (Agent interface, prompt-pack configs)
-  ├── context/business-context.builder.ts  ← pre-aggregated metrics, token-budgeted
-  ├── prompts/                         versioned prompt packs (db-backed, ai_prompts)
-  ├── guardrails/validator.ts          Zod schema + DB cross-check (anti-hallucination), repair-retry ≤2
-  └── registry/tool.registry.ts        typed action tools (discount.create, email.send …) — MCP-ready (Part 8)
+packages/ai  (M4 as-built — shared by api (reads/approves) and worker (runs/executes))
+  ├── provider/port.ts                  AiProvider port: typed structured completion
+  ├── provider/gemini.ts                ← only network edge; raw fetch (fetchImpl injectable), JSON-mode,
+  │                                     repair pass, retry, per-model micro$ pricing table
+  ├── context/builder.ts + health.ts    Business Context Builder (RLS-scoped, PII-minimized) +
+  │                                     deterministic Store Health (6 weighted components)
+  ├── rules/catalog.ts                  8 versioned deterministic rules — money/subjects/estimates
+  ├── prompts/registry.ts               5 agents as versioned prompt packs (promptId@vN, Git-audited)
+  ├── scoring.ts                        Server-side calibration: confidence caps/tiers, priority
+  │                                     floor/+1 cap, risk max, acceptance-rate learning adjuster
+  ├── service/recommendations.ts        RecommendationService: CAS state machine, dedupe fingerprints,
+  │                                     evidence snapshot, list/detail read-models
+  ├── service/decision.ts               Run orchestration: rules → agents → calibration → persistence;
+  │                                     typed unavailability, per-run call cap (cost circuit breaker)
+  ├── service/executor.ts + tools/      Typed tool registry (discount, email via SMTP), idempotent
+  │                                     action_executions with per-step checkpoints/resume
+  └── service/attribution.ts + overview.ts  Attribution chain + command-center read-models
 ```
-- **Model tiers** (cost control, Part 10): `TRIAGE` (small/fast) → `STANDARD` → `DEEP`; selected per agent/task.
-- **Safety:** action whitelist + confidence thresholds + approval state machine (`PENDING_APPROVAL → APPROVED/REJECTED → EXECUTING → EXECUTED/FAILED → MEASURED`) enforced in Recommendation service, re-verified by Automation Engine at execution.
-- **Observability:** every call → `ai_call_logs` (model, tokens, cost, latency, prompt version, traceId) feeding both Super Admin and per-merchant usage metering.
+- **Anti-hallucination is structural (M4 decision, see M4 doc §3):** deterministic rule constants own all numbers; the model produces prose/confidence only, then server-side calibration re-derives what persists. Unknown firingRefs dropped; `finalRisk = max(model, rule)`; priority floor from rule, +1 rank cap, CRITICAL only from rules.
+- **Safety:** action whitelist + confidence thresholds + approval state machine (`PENDING_APPROVAL → APPROVED/REJECTED → EXECUTING → EXECUTED/FAILED → MEASURED`; + `EXPIRED`, `SUPERSEDED`) enforced in RecommendationService (CAS on `stateVersion`), re-verified at execution; FULLY_AUTOMATIC autopilot requires confidence ≥ 80, risk ≠ HIGH and both merchant caps.
+- **Observability:** every call → `ai_call_logs` (request digest, model, tokens, micro$ cost, latency, prompt version) feeding both Super Admin and per-merchant usage metering; runs close into `ai_runs` (COMPLETED / PROVIDER_UNAVAILABLE / FAILED — no PARTIAL status; agent failures degrade gracefully inside a completed run).
+- **Prompt storage:** versioned code packs in v1 (`promptId@promptVersion`, versioned in Git + logged per call); db-backed `ai_prompts` arrives with A/B prompts in M6 campaigns.
 
 ### 4.5 Rule Engine
 - Deterministic predicates over pre-aggregated metrics; merchant-defined rules as versioned JSON (create/enable/disable/prioritize/simulate/test).
@@ -187,3 +198,6 @@ Coverage target ≥80% on services; `no explicit any` enforced by lint rule.
 10. **Agent abstraction in v1** with 5 agents as configs (P8/P10); tool registry designed MCP-compatible.
 11. **Three mandatory GDPR webhooks added** (`customers/data_request`, `customers/redact`, `shop/redact`) — compliance-required beyond P2's list.
 12. **Export files in object storage**, never in DB/container FS (P4/P5 reconciliation).
+13. **M4: AI engine as `packages/ai`** (shared by api+worker, same precedent as `packages/sync`), **Gemini over raw `fetch`** (JSON-mode + repair + precise micro$ costing; SDK invariant I1 intact via the port), **numbers owned by deterministic rules** (anti-hallucination by construction, not by prompt instruction).
+14. **M4: 8th sync module CHECKOUTS** + `checkouts/create|update` webhooks (20 business topics) so cart recovery uses real abandoned-checkout data and attribution can join by checkout token / discount code.
+15. **M4: `ai_runs` completed-write-only** (durable `background_jobs` is the live-progress mirror), **`ADVISORY` action type** (record+notify, executes inline), **automation preferences via `PATCH /store/settings`** nested-merge (one write path for merchant-controlled behavior).

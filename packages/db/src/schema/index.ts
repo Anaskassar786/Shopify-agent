@@ -8,6 +8,7 @@ export * from "./iam";
 export * from "./shopify";
 export * from "./shopify-data";
 export * from "./analytics";
+export * from "./ai";
 export * from "./audit";
 export * from "./notifications";
 export * from "./jobs";

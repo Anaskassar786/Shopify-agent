@@ -37,8 +37,11 @@ describe("buildPaletteItems (pure core)", () => {
 
   it("marks roadmap sections with their milestone hint", () => {
     const items = buildPaletteItems({ query: "", sections: SECTIONS, canSyncAll: false, canMarkAllRead: false, actions, search: undefined });
+    const campaigns = items.find((i) => i.label === "Campaigns");
+    expect(campaigns?.hint).toBe("arrives in M6");
+    // M4 surfaces went live: they carry no milestone hint anymore.
     const ai = items.find((i) => i.label === "AI Command Center");
-    expect(ai?.hint).toBe("arrives in M4");
+    expect(ai?.hint ?? null).toBeNull();
   });
 
   it("gates actions behind their permissions", () => {

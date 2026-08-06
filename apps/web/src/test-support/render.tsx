@@ -29,6 +29,7 @@ export const OWNER_PERMISSIONS = [
   "collections:sync",
   "discounts:sync",
   "metafields:sync",
+  "checkouts:sync",
   "analytics:read",
   "recommendations:read",
   "recommendations:approve",

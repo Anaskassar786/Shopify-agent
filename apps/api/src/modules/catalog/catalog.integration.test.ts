@@ -86,6 +86,8 @@ async function installAndSeed(): Promise<void> {
         title: "Alpha Runner", quantity: 2, price: "80.00", total_discount: "0.00",
       }],
       refunds: [],
+      checkout_token: null,
+      discount_codes: [],
     },
     {
       id: "7002", name: "#7002", order_number: 7002, email: "vip@example.com",
@@ -100,6 +102,8 @@ async function installAndSeed(): Promise<void> {
         title: "Beta Trail", quantity: 2, price: "120.00", total_discount: "0.00",
       }],
       refunds: [],
+      checkout_token: null,
+      discount_codes: [],
     },
   ]);
   await upsertLocations(env.db, storeId, [{ id: "301", name: "HQ", active: true }]);

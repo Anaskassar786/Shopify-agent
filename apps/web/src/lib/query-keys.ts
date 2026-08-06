@@ -20,3 +20,12 @@ export const QK = {
   subscription: ["subscription"] as const,
   search: (q: string) => ["search", q] as const,
 };
+
+/** M4 AI-plane keys (recommendations/ai/automation roots mirror the realtime invalidation map). */
+export const AI_QK = {
+  recommendations: (page: number, status: string, priority: string, type: string) =>
+    ["recommendations", page, status, priority, type] as const,
+  recommendation: (id: string) => ["recommendations", "detail", id] as const,
+  aiOverview: ["ai", "overview"] as const,
+  automationOverview: ["automation", "overview"] as const,
+};

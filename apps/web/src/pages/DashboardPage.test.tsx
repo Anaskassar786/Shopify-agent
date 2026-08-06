@@ -62,7 +62,7 @@ describe("DashboardPage", () => {
 
   it("rolls up store health from sync module states", async () => {
     renderApp(<DashboardPage />, { handlers: dashboardHandlers() });
-    expect(await screen.findByText("Synced · 7")).toBeInTheDocument();
+    expect(await screen.findByText("Synced · 8")).toBeInTheDocument();
     expect(screen.getByText(/Last successful sync/)).toBeInTheDocument();
   });
 

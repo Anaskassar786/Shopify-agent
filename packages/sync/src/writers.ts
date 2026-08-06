@@ -1,6 +1,7 @@
 import { and, eq, inArray, notInArray, sql } from "@profit/db";
 import type { ProfitDb } from "@profit/db";
 import {
+  shopifyCheckouts,
   shopifyCollections,
   shopifyCustomers,
   shopifyDiscountCodes,
@@ -17,6 +18,7 @@ import {
 import { MetafieldOwnerType } from "@profit/types";
 import { CollectionType, ProductStatus } from "@profit/types";
 import type {
+  RestCheckout,
   RestCollection,
   RestCustomer,
   RestDiscountCode,
@@ -440,6 +442,8 @@ export async function upsertOrders(
           totalRefunded: totals.totalRefunded,
           isTest: order.test,
           tags: order.tags,
+          checkoutToken: order.checkout_token ?? null,
+          discountCodes: order.discount_codes.map((entry) => ({ code: entry.code })),
           ...(customerId !== null ? { customerId } : {}),
           ...(order.order_number !== null && order.order_number !== undefined
             ? { orderNumber: order.order_number }
@@ -492,6 +496,8 @@ export async function upsertOrders(
             cancelReason: order.cancel_reason ?? null,
             isTest: order.test,
             tags: order.tags,
+            checkoutToken: order.checkout_token ?? null,
+            discountCodes: order.discount_codes.map((entry) => ({ code: entry.code })),
             shopifyUpdatedAt: order.updated_at ?? null,
             updatedAt: new Date(),
           },
@@ -918,6 +924,106 @@ export async function upsertMetafields(
             value: metafield.value === undefined ? null : (metafield.value as Record<string, unknown> | unknown[] | string | number | boolean | null),
             valueType: metafield.valueType,
             shopifyUpdatedAt: metafield.shopifyUpdatedAt,
+            updatedAt: new Date(),
+          },
+        })
+        .returning({ inserted: sql<boolean>`(xmax = 0)` });
+      if (upserted[0]?.inserted === true) stats.created += 1;
+      else if (upserted[0] !== undefined) stats.updated += 1;
+      stats.processed += 1;
+    }
+  });
+  return stats;
+}
+
+/** M4: checkouts writer — one upsert per checkout token (the identity), used
+ * by both the CHECKOUTS sync module and checkouts/create|update webhooks. */
+export async function upsertCheckouts(
+  db: ProfitDb,
+  storeId: string,
+  checkouts: readonly RestCheckout[],
+): Promise<WriteStats> {
+  const stats = emptyStats();
+  if (checkouts.length === 0) return stats;
+  const customerShopifyIds = [
+    ...new Set(
+      checkouts
+        .map((checkout) => checkout.customer?.id)
+        .filter((id): id is string => id !== null && id !== undefined),
+    ),
+  ];
+  await withStoreScope(db, storeId, async (tx) => {
+    const customerRows =
+      customerShopifyIds.length > 0
+        ? await tx
+            .select({
+              id: shopifyCustomers.id,
+              shopifyCustomerId: shopifyCustomers.shopifyCustomerId,
+            })
+            .from(shopifyCustomers)
+            .where(
+              and(
+                eq(shopifyCustomers.storeId, storeId),
+                inArray(shopifyCustomers.shopifyCustomerId, customerShopifyIds),
+              ),
+            )
+        : [];
+    const customerMap = new Map(customerRows.map((row) => [row.shopifyCustomerId, row.id]));
+
+    for (const checkout of checkouts) {
+      const customerId =
+        checkout.customer?.id !== undefined && checkout.customer?.id !== null
+          ? (customerMap.get(checkout.customer.id) ?? null)
+          : null;
+      const webUrl = checkout.abandoned_checkout_url ?? checkout.web_url ?? null;
+      const lineItems = checkout.line_items.slice(0, 20).map((item) => ({
+        title: item.title ?? "Item",
+        quantity: item.quantity,
+        price: item.price,
+        productId: item.product_id ?? null,
+        variantId: item.variant_id ?? null,
+      }));
+      const upserted = await tx
+        .insert(shopifyCheckouts)
+        .values({
+          storeId,
+          shopifyCheckoutId: checkout.id,
+          token: checkout.token,
+          currency: checkout.currency,
+          totalPrice: checkout.total_price,
+          lineItems,
+          ...(customerId !== null ? { customerId } : {}),
+          ...(checkout.email !== null && checkout.email !== undefined
+            ? { email: checkout.email }
+            : {}),
+          ...(webUrl !== null ? { webUrl } : {}),
+          ...(checkout.completed_at !== null && checkout.completed_at !== undefined
+            ? { completedAt: checkout.completed_at }
+            : {}),
+          ...(checkout.closed_at !== null && checkout.closed_at !== undefined
+            ? { closedAt: checkout.closed_at }
+            : {}),
+          ...(checkout.created_at !== null && checkout.created_at !== undefined
+            ? { shopifyCreatedAt: checkout.created_at }
+            : {}),
+          ...(checkout.updated_at !== null && checkout.updated_at !== undefined
+            ? { shopifyUpdatedAt: checkout.updated_at }
+            : {}),
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [shopifyCheckouts.storeId, shopifyCheckouts.token],
+          set: {
+            shopifyCheckoutId: checkout.id,
+            customerId,
+            email: checkout.email ?? null,
+            currency: checkout.currency,
+            totalPrice: checkout.total_price,
+            webUrl,
+            lineItems,
+            completedAt: checkout.completed_at ?? null,
+            closedAt: checkout.closed_at ?? null,
+            shopifyUpdatedAt: checkout.updated_at ?? null,
             updatedAt: new Date(),
           },
         })

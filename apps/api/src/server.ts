@@ -26,6 +26,9 @@ import { analyticsRouter } from "./modules/analytics/analytics.router";
 import { auditLogsRouter } from "./modules/audit/audit.router";
 import { subscriptionRouter } from "./modules/billing/subscription.router";
 import { notificationsRouter } from "./modules/notifications/notifications.router";
+import { recommendationsRouter } from "./modules/ai/recommendations.router";
+import { aiRouter } from "./modules/ai/ai.router";
+import { automationRouter } from "./modules/ai/automation.router";
 import { searchRouter } from "./modules/search/search.router";
 import { createRealtimeGateway } from "./modules/realtime/gateway";
 import { createSpaHandler, mountSpa } from "./static/spa";
@@ -282,6 +285,9 @@ function buildRouters(
         logger,
         defaultPlanCode: env.SHOPIFY_BILLING_PLAN,
       }),
+      recommendations: recommendationsRouter({ db: db.db, jwt, queue, persistence, audit }),
+      ai: aiRouter({ db: db.db, jwt }),
+      automation: automationRouter({ db: db.db, jwt }),
     },
   };
 }
@@ -301,5 +307,8 @@ function stubApiV1(): AppRouters["apiV1"] {
     search: Router(),
     auditLogs: Router(),
     subscription: Router(),
+    recommendations: Router(),
+    ai: Router(),
+    automation: Router(),
   };
 }

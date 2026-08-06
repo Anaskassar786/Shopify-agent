@@ -47,8 +47,12 @@ function event(kind: RealtimeEventKind): RealtimeEvent {
         : kind === RealtimeEventKind.SyncModuleCompleted || kind === RealtimeEventKind.SyncModuleFailed
           ? { module: "ORDERS", runId: "r-1" }
           : kind === RealtimeEventKind.SyncFullRunCompleted
-            ? { runGroupId: "g-1", modulesCompleted: 7 }
-            : { dateFrom: null, dateTo: null },
+            ? { runGroupId: "g-1", modulesCompleted: 8 }
+            : kind === RealtimeEventKind.RecommendationCreated
+              ? { recommendationId: "rec-1", type: "RECOVER_ABANDONED_CART", title: "Recover a cart", priority: "HIGH" }
+              : kind === RealtimeEventKind.RecommendationExecuted
+                ? { recommendationId: "rec-1", type: "RECOVER_ABANDONED_CART", actionType: "SEND_RECOVERY_EMAIL", succeeded: true }
+                : { dateFrom: null, dateTo: null },
   } as RealtimeEvent;
 }
 
@@ -97,6 +101,20 @@ describe("RealtimeClient", () => {
     invalidate.mockClear();
     client.route(event(RealtimeEventKind.SyncModuleFailed));
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["sync"] });
+
+    // M4: the AI loop streams its own two kinds — both refetch the AI surfaces.
+    invalidate.mockClear();
+    client.route(event(RealtimeEventKind.RecommendationCreated));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["recommendations"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["ai"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["dashboard"] });
+
+    invalidate.mockClear();
+    client.route(event(RealtimeEventKind.RecommendationExecuted));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["recommendations"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["ai"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["automation"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["dashboard"] });
   });
 
   it("fires onNotification only for notification.created with a typed payload", () => {

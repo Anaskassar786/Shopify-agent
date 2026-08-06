@@ -34,6 +34,7 @@ const MODULE_PERMISSION: Readonly<Record<SyncModule, string>> = {
   [SyncModule.Collections]: "collections:sync",
   [SyncModule.Discounts]: "discounts:sync",
   [SyncModule.Metafields]: "metafields:sync",
+  [SyncModule.Checkouts]: "checkouts:sync",
 };
 
 const SYNC_TRIGGER_RULE: RateLimitRule = { scope: "sync-trigger", max: 30 };
@@ -61,7 +62,7 @@ export function syncRouter(deps: SyncRouterDeps): ExpressRouter {
 
   router.use(requireAppAuth(deps.jwt), requireActiveStore(deps.db));
 
-  // Full catalog sync (all 7 modules, orchestrated fan-out).
+  // Full catalog sync (all modules, orchestrated fan-out — FULL_SYNC_ORDER is the single source).
   router.post(
     "/full",
     rateLimitMiddleware(deps.cache, SYNC_TRIGGER_RULE),

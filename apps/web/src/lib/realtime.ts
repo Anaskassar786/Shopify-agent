@@ -28,6 +28,8 @@ const QUERY_KEY_BY_KIND: Readonly<Record<string, readonly string[][]>> = {
   [RealtimeEventKind.SyncModuleFailed]: [["sync"], ["notifications"]],
   [RealtimeEventKind.SyncFullRunCompleted]: [["sync"], ["analytics"], ["catalog"], ["dashboard"]],
   [RealtimeEventKind.AnalyticsRefreshed]: [["analytics"], ["dashboard"]],
+  [RealtimeEventKind.RecommendationCreated]: [["recommendations"], ["ai"], ["dashboard"]],
+  [RealtimeEventKind.RecommendationExecuted]: [["recommendations"], ["ai"], ["automation"], ["dashboard"]],
 };
 
 export class RealtimeClient {

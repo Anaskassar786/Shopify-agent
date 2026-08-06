@@ -17,6 +17,7 @@ import {
   AnimatedNumber,
   AreaChart,
   Badge,
+  Button,
   Card,
   CardBody,
   CardHeader,
@@ -24,25 +25,32 @@ import {
   EmptyState,
   formatDateLabel,
   formatMoney,
+  Gauge,
   HealthBar,
   Skeleton,
   Sparkline,
   StatCard,
   Tabs,
+  useToast,
 } from "@profit/ui";
 import { QueryBoundary } from "../components/QueryBoundary";
 import { PageHeader } from "../components/PageHeader";
 import { useAuth } from "../lib/auth-context";
+import { ApiError } from "../lib/api-client";
 import { formatRelativeTime } from "../lib/format";
 import { halfSplitDelta, formatDelta } from "../lib/series";
 import {
+  useAiOverviewQuery,
   useAnalyticsSummaryQuery,
   useAuditLogsQuery,
   useInventoryLevelsQuery,
+  useRecommendationsQuery,
+  useRunAnalysisMutation,
   useSyncStatusQuery,
   useTopCustomersQuery,
   useTopProductsQuery,
 } from "../lib/queries";
+import { PRIORITY_TONE, priorityLabel, recommendationTypeLabel } from "./ai-shared";
 
 const RANGE_OPTIONS = [
   { key: "7", label: "7 days" },
@@ -220,6 +228,110 @@ function InventoryAlertsCard({ currency }: { readonly currency: string }): React
   );
 }
 
+/**
+ * M4 AI insights tile: engine health score + the highest-priority decisions
+ * waiting for the merchant, with a first-run CTA when the engine has never
+ * run (zero state is content, not a placeholder).
+ */
+function AiInsightsCard(): ReactNode {
+  const overview = useAiOverviewQuery();
+  const pending = useRecommendationsQuery({ page: 1, status: "PENDING_APPROVAL", priority: "", type: "" });
+  const run = useRunAnalysisMutation();
+  const toast = useToast();
+  const { hasPermission } = useAuth();
+  const canRun = hasPermission("recommendations:approve");
+
+  const busy = run.isPending;
+  const topPending = (pending.data?.items ?? [])
+    .filter((rec) => rec.priority === "CRITICAL" || rec.priority === "HIGH")
+    .slice(0, 3);
+
+  const onRun = (): void => {
+    run.mutate(undefined, {
+      onSuccess: () => toast.success("Analysis is running", "New recommendations land here the moment they are ready."),
+      onError: (error: ApiError) => toast.error("Analysis could not start", error.message),
+    });
+  };
+
+  return (
+    <Card>
+      <CardHeader
+        title="AI insights"
+        subtitle="Engine health and your highest-priority decisions"
+        actions={
+          <Link
+            to="/ai"
+            className="inline-flex items-center gap-1 text-xs font-medium text-primary transition-colors hover:text-primary-strong"
+          >
+            Command center <ArrowRight className="size-3" aria-hidden />
+          </Link>
+        }
+      />
+      <CardBody>
+        <QueryBoundary query={overview} compact>
+          {overview.data?.engine.lastRunAt === null || overview.data === undefined ? (
+            <EmptyState
+              icon={<Sparkles className="size-6" aria-hidden />}
+              title="No analysis yet"
+              body="The AI engine will read your synced store data and propose revenue actions. It decides nothing on its own until you approve."
+              primaryAction={
+                canRun ? (
+                  <Button size="sm" onClick={onRun} loading={busy}>Run your first analysis</Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-4">
+                {overview.data.health.score !== null ? (
+                  <Gauge
+                    value={overview.data.health.score}
+                    label="Store score"
+                    tone={overview.data.health.score >= 70 ? "success" : overview.data.health.score >= 40 ? "warning" : "danger"}
+                  />
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-muted">
+                    {overview.data.open.pendingApproval === 0
+                      ? "Nothing waiting on you — the next scheduled analysis keeps watch."
+                      : `${String(overview.data.open.pendingApproval)} recommendation${overview.data.open.pendingApproval === 1 ? "" : "s"} waiting for your decision.`}
+                  </p>
+                  {overview.data.outcomes.attributedRevenueCents > 0 && (
+                    <p className="mt-1 text-xs text-success">
+                      {formatMoney(overview.data.outcomes.attributedRevenueCents)} attributed to approved actions so far.
+                    </p>
+                  )}
+                </div>
+              </div>
+              {topPending.length > 0 && (
+                <ul className="flex flex-col divide-y divide-subtle" aria-label="Top pending recommendations">
+                  {topPending.map((rec) => (
+                    <li key={rec.id} className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0">
+                      <Link to={`/recommendations/${rec.id}`} className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground hover:text-primary">{rec.title}</p>
+                        <p className="truncate text-[11px] text-faint">
+                          {recommendationTypeLabel(rec.type)} · +{formatMoney(rec.estimatedRevenueCents)} est.
+                        </p>
+                      </Link>
+                      <Badge tone={PRIORITY_TONE[rec.priority] ?? "neutral"}>{priorityLabel(rec.priority)}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <Link
+                to="/recommendations"
+                className="inline-flex items-center gap-1 self-start text-xs font-medium text-primary transition-colors hover:text-primary-strong"
+              >
+                Review recommendations <ArrowRight className="size-3" aria-hidden />
+              </Link>
+            </div>
+          )}
+        </QueryBoundary>
+      </CardBody>
+    </Card>
+  );
+}
+
 export function DashboardPage(): ReactNode {
   const { hasPermission } = useAuth();
   const [days, setDays] = useState<number>(30);
@@ -228,6 +340,7 @@ export function DashboardPage(): ReactNode {
   const topCustomers = useTopCustomersQuery(days);
   const canReadAudit = hasPermission("audit:read");
   const canReadInventory = hasPermission("inventory:read");
+  const canReadRecommendations = hasPermission("recommendations:read");
 
   const totals = summary.data?.totals;
   const series = summary.data?.series ?? [];
@@ -384,6 +497,10 @@ export function DashboardPage(): ReactNode {
             </Card>
           </>
         )}
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        {canReadRecommendations && <AiInsightsCard />}
         {canReadAudit ? <RecentActivityCard /> : canReadInventory ? <InventoryAlertsCard currency={currency} /> : null}
       </div>
 

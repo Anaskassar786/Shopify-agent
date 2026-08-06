@@ -15,11 +15,23 @@ import {
   SyncStoreFullJob,
   WebhookProcessJob,
 } from "@profit/sync";
+import {
+  AiExecuteDiscountActionJob,
+  AiExecuteEmailActionJob,
+  AiMeasureTickJob,
+  AiNightlyTickJob,
+  AiRunJob,
+  GeminiProvider,
+  SmtpEmailSender,
+} from "@profit/ai";
+import { ModelTier } from "@profit/types";
 import { loadWorkerEnv, type WorkerEnv } from "./config/env";
 import type { WorkerDeps } from "./handlers/deps";
 import { analyticsRefreshHandler, analyticsNightlyTickHandler, ensureWebhooksHandler, maintenanceDailyTickHandler, syncScheduledTickHandler } from "./handlers/maintenance.handlers";
 import { fullSyncHandler, moduleSyncHandler } from "./handlers/sync.handlers";
 import { webhookProcessHandler } from "./handlers/webhook.handlers";
+import { aiMeasureTickHandler, aiNightlyTickHandler, aiRunHandler } from "./handlers/ai.handlers";
+import { executeDiscountActionHandler, executeEmailActionHandler } from "./handlers/execution.handlers";
 import { startHealthServer } from "./health/server";
 
 export interface RunningWorker {
@@ -44,6 +56,12 @@ export function registerWorkerJobs(deps: WorkerDeps): void {
   deps.queue.register(SyncScheduledTickJob, syncScheduledTickHandler(deps));
   deps.queue.register(AnalyticsNightlyTickJob, analyticsNightlyTickHandler(deps));
   deps.queue.register(MaintenanceDailyTickJob, maintenanceDailyTickHandler(deps));
+  // M4 AI plane
+  deps.queue.register(AiRunJob, aiRunHandler(deps));
+  deps.queue.register(AiNightlyTickJob, aiNightlyTickHandler(deps));
+  deps.queue.register(AiMeasureTickJob, aiMeasureTickHandler(deps));
+  deps.queue.register(AiExecuteEmailActionJob, executeEmailActionHandler(deps));
+  deps.queue.register(AiExecuteDiscountActionJob, executeDiscountActionHandler(deps));
 }
 
 /** Repeatable schedules (P3 scheduler). BullMQ dedupes by scheduleId; memory driver mirrors semantics. */
@@ -66,6 +84,18 @@ export async function registerWorkerSchedules(deps: WorkerDeps): Promise<void> {
     everyMs: SCHEDULES.webhookEnsureEveryMs,
     payload: {},
   });
+  await deps.queue.upsertSchedule({
+    scheduleId: "ai.nightly-tick",
+    definition: AiNightlyTickJob,
+    everyMs: deps.env.AI_RUN_INTERVAL_MS,
+    payload: {},
+  });
+  await deps.queue.upsertSchedule({
+    scheduleId: "ai.measure-tick",
+    definition: AiMeasureTickJob,
+    everyMs: deps.env.AI_MEASURE_INTERVAL_MS,
+    payload: {},
+  });
 }
 
 export async function startWorker(): Promise<RunningWorker> {
@@ -86,7 +116,42 @@ export async function startWorker(): Promise<RunningWorker> {
     concurrency: env.WORKER_CONCURRENCY,
   });
   const persistence = new JobPersistence(db.db, logger);
-  const deps: WorkerDeps = { env, logger, db, queue, persistence, cache, pubsub, encryption };
+
+  // M4: provider + email sender construct ONLY when fully configured —
+  // null means "capability unavailable" (failsafe), which services surface
+  // honestly (run lands PROVIDER_UNAVAILABLE / tool reports unavailable).
+  const aiProvider =
+    env.GEMINI_API_KEY !== undefined
+      ? new GeminiProvider({
+          apiKey: env.GEMINI_API_KEY,
+          models: {
+            [ModelTier.Triage]: env.AI_DEFAULT_GEMINI_MODEL,
+            [ModelTier.Standard]: env.AI_DEFAULT_GEMINI_MODEL,
+            [ModelTier.Deep]: env.AI_DEFAULT_GEMINI_MODEL,
+          },
+        })
+      : null;
+  const smtpConfigured =
+    env.SMTP_HOST !== undefined &&
+    env.SMTP_USER !== undefined &&
+    env.SMTP_PASSWORD !== undefined;
+  const emailSender = smtpConfigured
+    ? new SmtpEmailSender({
+        host: env.SMTP_HOST as string,
+        port: env.SMTP_PORT,
+        user: env.SMTP_USER as string,
+        password: env.SMTP_PASSWORD as string,
+        fromAddress: env.EMAIL_FROM,
+        fromName: "Profit Tool AI",
+      })
+    : null;
+  if (aiProvider === null) logger.warn("GEMINI_API_KEY missing — AI runs will land PROVIDER_UNAVAILABLE");
+  if (emailSender === null) logger.warn("SMTP incomplete — email tool will report itself unavailable");
+
+  const deps: WorkerDeps = {
+    env, logger, db, queue, persistence, cache, pubsub, encryption,
+    aiProvider, emailSender,
+  };
 
   persistence.attach(queue);
   registerWorkerJobs(deps);
@@ -117,6 +182,7 @@ export async function startWorker(): Promise<RunningWorker> {
       healthServer.close(() => resolve());
     });
     await queue.close();
+    if (emailSender !== null) await emailSender.close();
     await cache.close();
     await pubsub.close();
     await db.close();

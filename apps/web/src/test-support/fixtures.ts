@@ -1,6 +1,8 @@
 import type {
+  AiOverviewResponse,
   AnalyticsSummaryResponse,
   AuditLogRow,
+  AutomationOverviewResponse,
   CustomerDetailResponse,
   CustomerRow,
   GlobalSearchResponse,
@@ -10,6 +12,8 @@ import type {
   OrderRow,
   ProductDetailRow,
   ProductRow,
+  RecommendationDetail,
+  RecommendationRow,
   StoreResponse,
   SubscriptionResponse,
   SyncHistoryRow,
@@ -87,7 +91,7 @@ export function subscriptionResponse(): SubscriptionResponse {
 }
 
 export function syncStatusResponse(overrides: Partial<SyncStatusResponse["modules"][number]> = {}): SyncStatusResponse {
-  const modules = ["PRODUCTS", "CUSTOMERS", "ORDERS", "INVENTORY", "COLLECTIONS", "DISCOUNTS", "METAFIELDS"] as const;
+  const modules = ["PRODUCTS", "CUSTOMERS", "ORDERS", "INVENTORY", "COLLECTIONS", "DISCOUNTS", "METAFIELDS", "CHECKOUTS"] as const; // M4: 8 modules
   return {
     storeId: STORE_ID,
     modules: modules.map((module) => ({
@@ -275,7 +279,7 @@ export const NOTIFICATIONS: readonly NotificationRow[] = [
     userId: null,
     category: "SYSTEM",
     title: "Data sync complete",
-    body: "All 7 modules synced successfully.",
+    body: "All 8 modules synced successfully.",
     actionUrl: "/dashboard",
     readAt: null,
     createdAt: "2026-08-05T08:05:00.000Z",
@@ -344,5 +348,204 @@ export function searchResponse(): GlobalSearchResponse {
       customers: { permitted: true, total: 0, items: [] },
       orders: { permitted: false, total: 0, items: [] },
     },
+  };
+}
+
+/* ── AI revenue loop fixtures (M4 wire shapes) ───────────────────────────── */
+
+export const RECOMMENDATION_ID = "66666666-6666-4666-8666-666666666666";
+
+export function recommendationRow(overrides: Partial<RecommendationRow> = {}): RecommendationRow {
+  return {
+    id: RECOMMENDATION_ID,
+    storeId: STORE_ID,
+    type: "RECOVER_ABANDONED_CART",
+    agentId: "REVENUE_RECOVERY",
+    ruleId: "cart.abandoned-recovery",
+    title: "Recover Mia's abandoned cart",
+    description: "A shopper left $48.00 behind 9 hours ago. A recovery email with a small discount converts best in the first 24 hours.",
+    reasoning: [
+      "Checkout abandoned 9 hours ago with a reachable email",
+      "Carts under 24h old convert at 2.4% in the baseline rule model",
+      "The cart value clears your minimum for automation",
+    ],
+    priority: "HIGH",
+    confidence: 85,
+    riskLevel: "LOW",
+    estimatedRevenueCents: 1152,
+    estimatedCostCents: 960,
+    subjects: { checkoutTokens: ["tok-1"] },
+    actionType: "SEND_RECOVERY_EMAIL",
+    actionParams: { template: "RECOVERY", checkoutToken: "tok-1", discountPercent: 10 },
+    status: "PENDING_APPROVAL",
+    stateVersion: 1,
+    decidedByUserId: null,
+    decidedAt: null,
+    decisionReason: null,
+    expiresAt: "2026-08-08T10:00:00.000Z",
+    createdAt: "2026-08-05T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+export const RECOMMENDATIONS: readonly RecommendationRow[] = [
+  recommendationRow(),
+  recommendationRow({
+    id: "66666666-6666-4666-8666-666666666667",
+    type: "RESTOCK",
+    agentId: "INVENTORY",
+    title: "Restock Alpha Runner before the weekend",
+    priority: "MEDIUM",
+    confidence: 74,
+    estimatedRevenueCents: 3840,
+    estimatedCostCents: 0,
+    actionType: "ADVISORY",
+    subjects: { productIds: ["p1"] },
+  }),
+  recommendationRow({
+    id: "66666666-6666-4666-8666-666666666668",
+    type: "WINBACK_INACTIVE",
+    agentId: "CUSTOMER_INTELLIGENCE",
+    title: "Win back 14 quiet customers with one email",
+    priority: "CRITICAL",
+    confidence: 91,
+    estimatedRevenueCents: 5210,
+    estimatedCostCents: 520,
+    status: "EXECUTED",
+  }),
+];
+
+export function recommendationDetail(overrides: Partial<RecommendationDetail> = {}): RecommendationDetail {
+  return {
+    ...recommendationRow(),
+    evidence: {
+      computedAt: "2026-08-05T10:00:00.000Z",
+      storeHealthScore: 71,
+      facts: ["Cart total $48.00", "9 hours since abandonment", "Email on file: yes"],
+      rule: { id: "cart.abandoned-recovery", version: 1 },
+      estimates: {
+        revenueCents: 1152,
+        costCents: 960,
+        roiMultiple: 1.2,
+        expectationBasis: "deterministic rule catalog constants",
+      },
+      calibration: {
+        modelConfidence: 88,
+        finalConfidence: 85,
+        tier: "HIGH",
+        modelPriority: "HIGH",
+        finalPriority: "HIGH",
+        modelRisk: "LOW",
+        finalRisk: "LOW",
+      },
+      contextDigest: {
+        netCents: 612_000,
+        trendPct: 4.2,
+        ordersCount: 120,
+        customersTotal: 86,
+        abandonedCount: 3,
+        refundsRatePct: 1.1,
+      },
+      model: { provider: "gemini", promptId: "agent.revenue_recovery", promptVersion: "v1" },
+    },
+    events: [
+      {
+        id: "ev-1",
+        event: "CREATED",
+        actorType: "AI",
+        actorUserId: null,
+        fromStatus: null,
+        toStatus: "PENDING_APPROVAL",
+        details: { ruleId: "cart.abandoned-recovery", confidence: 85 },
+        createdAt: "2026-08-05T10:00:00.000Z",
+      },
+    ],
+    executions: [],
+    ...overrides,
+  };
+}
+
+export function aiOverviewResponse(overrides: Partial<AiOverviewResponse> = {}): AiOverviewResponse {
+  return {
+    engine: {
+      lastRunAt: "2026-08-05T10:00:00.000Z",
+      lastRunStatus: "COMPLETED",
+      lastRunTrigger: "SCHEDULED",
+      runsLast7d: 12,
+      costMicrosLast7d: 2_240,
+      tokensLast7d: 41_300,
+    },
+    health: {
+      score: 71,
+      computedAt: "2026-08-05T10:00:05.000Z",
+      components: {
+        components: [
+          { key: "revenueTrend", label: "Revenue trend", score: 78, weight: 25, reason: "Sales are up 4% vs the previous window" },
+          { key: "checkoutRecovery", label: "Checkout recovery", score: 55, weight: 15, reason: "3 abandoned carts are still open" },
+        ],
+      },
+    },
+    open: { pendingApproval: 2, approved: 1, executing: 0, highPriorityOpen: 2 },
+    outcomes: { acceptanceRatePct: 64, attributedRevenueCents: 9_600, attributedOrders: 4 },
+    recentEvents: [
+      {
+        id: "ev-9",
+        recommendationId: RECOMMENDATION_ID,
+        event: "CREATED",
+        actorType: "AI",
+        title: "Recover Mia's abandoned cart",
+        type: "RECOVER_ABANDONED_CART",
+        createdAt: "2026-08-05T10:00:00.000Z",
+      },
+    ],
+    ...overrides,
+  };
+}
+
+export function aiOverviewZeroState(): AiOverviewResponse {
+  return {
+    engine: {
+      lastRunAt: null,
+      lastRunStatus: null,
+      lastRunTrigger: null,
+      runsLast7d: 0,
+      costMicrosLast7d: 0,
+      tokensLast7d: 0,
+    },
+    health: { score: null, computedAt: null, components: null },
+    open: { pendingApproval: 0, approved: 0, executing: 0, highPriorityOpen: 0 },
+    outcomes: { acceptanceRatePct: null, attributedRevenueCents: 0, attributedOrders: 0 },
+    recentEvents: [],
+  };
+}
+
+export function automationOverviewResponse(overrides: Partial<AutomationOverviewResponse> = {}): AutomationOverviewResponse {
+  return {
+    policy: {
+      mode: "MANUAL",
+      abandonedCartEnabled: true,
+      abandonedCartDelayHours: 6,
+      abandonedCartMinValueCents: 0,
+      abandonedCartDiscountPercent: 10,
+      maxAutoDiscountPercent: 15,
+      maxAutoApproveEstimatedRevenueCents: 50_000,
+    },
+    executions: [
+      {
+        id: "ex-1",
+        recommendationId: "66666666-6666-4666-8666-666666666668",
+        recommendationTitle: "Win back 14 quiet customers with one email",
+        type: "WINBACK_INACTIVE",
+        actionType: "SEND_RECOVERY_EMAIL",
+        status: "SUCCEEDED",
+        errorMessage: null,
+        attempts: 1,
+        preview: { discountCode: "PT-WINBACK14", recipients: 14 },
+        createdAt: "2026-08-04T09:00:00.000Z",
+        finishedAt: "2026-08-04T09:00:08.000Z",
+      },
+    ],
+    outcomes: { attributedRevenueCents: 9_600, attributedOrders: 4, measuredCount: 1 },
+    ...overrides,
   };
 }
