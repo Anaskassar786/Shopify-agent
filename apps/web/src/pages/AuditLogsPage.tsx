@@ -1,16 +1,25 @@
 import { useState, type ReactNode } from "react";
-import { ScrollText } from "lucide-react";
-import { Badge, DataTable, EmptyState, Input, Select, type ColumnDef } from "@profit/ui";
+import { FileDown, ScrollText } from "lucide-react";
+import { Badge, Button, DataTable, EmptyState, Input, Select, useToast, type ColumnDef } from "@profit/ui";
 import { PageHeader } from "../components/PageHeader";
+import { useAuth } from "../lib/auth-context";
 import { formatDateTime } from "../lib/format";
 import { useAuditLogsQuery } from "../lib/queries";
+import { useAuditExportRequest } from "../lib/export-queries";
 import type { AuditLogRow } from "../lib/api-types";
 
 export function AuditLogsPage(): ReactNode {
+  const { hasPermission } = useAuth();
+  const toast = useToast();
   const [page, setPage] = useState(1);
   const [action, setAction] = useState("");
   const [result, setResult] = useState("");
   const logs = useAuditLogsQuery(page, action, result);
+  const canExport = hasPermission("exports:manage");
+  const auditExport = useAuditExportRequest((kind, title, body) => {
+    if (kind === "success") toast.success(title, body);
+    else toast.error(title, body);
+  });
 
   const columns: readonly ColumnDef<AuditLogRow>[] = [
     {
@@ -61,6 +70,19 @@ export function AuditLogsPage(): ReactNode {
       <PageHeader
         title="Audit logs"
         subtitle="Append-only trail of every authenticated action. Prefix filters are matched server-side."
+        actions={
+          canExport ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              iconLeft={<FileDown className="size-3.5" aria-hidden />}
+              onClick={auditExport.request}
+              loading={auditExport.pending}
+            >
+              Export audit log
+            </Button>
+          ) : undefined
+        }
       />
       <DataTable
         columns={columns}

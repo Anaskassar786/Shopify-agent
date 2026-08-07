@@ -92,6 +92,8 @@ export const BillingEventType = {
   TrialStarted: "TRIAL_STARTED",
   TrialNudgeSent: "TRIAL_NUDGE_SENT",
   TrialExpired: "TRIAL_EXPIRED",
+  /** M6: operator-extended trial window (platform-admin write action). */
+  TrialExtended: "TRIAL_EXTENDED",
   ChargeCreated: "CHARGE_CREATED",
   ChargeAccepted: "CHARGE_ACCEPTED",
   ChargeDeclined: "CHARGE_DECLINED",
@@ -119,6 +121,10 @@ export const EngagementEventKind = {
   PaidSubscriptionStarted: "PAID_SUBSCRIPTION_STARTED",
   TrialNudgeSent: "TRIAL_NUDGE_SENT",
   ChurnNudgeSent: "CHURN_NUDGE_SENT",
+  /** M6: first DAG workflow activated from the Automation Center. */
+  FirstWorkflowActivated: "FIRST_WORKFLOW_ACTIVATED",
+  /** M6: first campaign fully dispatched to its audience. */
+  FirstCampaignSent: "FIRST_CAMPAIGN_SENT",
 } as const;
 export type EngagementEventKind =
   (typeof EngagementEventKind)[keyof typeof EngagementEventKind];
@@ -132,6 +138,8 @@ export const ENGAGEMENT_MILESTONE_KINDS: readonly EngagementEventKind[] = [
   EngagementEventKind.FirstRecommendationApproved,
   EngagementEventKind.FirstAutomationEnabled,
   EngagementEventKind.PaidSubscriptionStarted,
+  EngagementEventKind.FirstWorkflowActivated,
+  EngagementEventKind.FirstCampaignSent,
 ];
 
 /** Sync engine (P2). CHECKOUTS added in M4 — the abandoned-cart data plane. */
@@ -240,6 +248,10 @@ export const QueueName = {
   Analytics: "analytics",
   Notification: "notification",
   Cleanup: "cleanup",
+  /** M6: workflow runs + campaign dispatch/send fan-out. */
+  Automation: "automation",
+  /** M6: report file generation (CSV/XLSX/PDF). */
+  Export: "export",
 } as const;
 export type QueueName = (typeof QueueName)[keyof typeof QueueName];
 
@@ -448,3 +460,230 @@ export const HealthStatus = {
   Down: "down",
 } as const;
 export type HealthStatus = (typeof HealthStatus)[keyof typeof HealthStatus];
+
+/* ─────────────────────────── M6: Automation Center + Campaigns ─────────────────────────── */
+
+/** DAG workflow lifecycle (M6). Only ACTIVE workflows consume triggers/schedules. */
+export const WorkflowStatus = {
+  Draft: "DRAFT",
+  Active: "ACTIVE",
+  Paused: "PAUSED",
+  Archived: "ARCHIVED",
+} as const;
+export type WorkflowStatus = (typeof WorkflowStatus)[keyof typeof WorkflowStatus];
+
+/** What fires a workflow run (M6). EVENT = a Shopify webhook topic, matched after processing. */
+export const WorkflowTriggerKind = {
+  Manual: "MANUAL",
+  Schedule: "SCHEDULE",
+  Event: "EVENT",
+} as const;
+export type WorkflowTriggerKind =
+  (typeof WorkflowTriggerKind)[keyof typeof WorkflowTriggerKind];
+
+/** Node taxonomy of the workflow DAG (M6). Exactly one TRIGGER root per workflow. */
+export const WorkflowNodeKind = {
+  Trigger: "TRIGGER",
+  Condition: "CONDITION",
+  Delay: "DELAY",
+  SendEmail: "SEND_EMAIL",
+  SendSms: "SEND_SMS",
+  TagCustomer: "TAG_CUSTOMER",
+  CreateDiscount: "CREATE_DISCOUNT",
+} as const;
+export type WorkflowNodeKind = (typeof WorkflowNodeKind)[keyof typeof WorkflowNodeKind];
+
+/** Run ledger outcome. WAITING = suspended on a DELAY node until resumeAt. */
+export const WorkflowRunStatus = {
+  Running: "RUNNING",
+  Waiting: "WAITING",
+  Completed: "COMPLETED",
+  Failed: "FAILED",
+  Cancelled: "CANCELLED",
+} as const;
+export type WorkflowRunStatus = (typeof WorkflowRunStatus)[keyof typeof WorkflowRunStatus];
+
+/** Per-node step checkpoint (M6 idempotent resume; unique per run+node). */
+export const WorkflowStepStatus = {
+  Pending: "PENDING",
+  Running: "RUNNING",
+  Completed: "COMPLETED",
+  Failed: "FAILED",
+  Skipped: "SKIPPED",
+} as const;
+export type WorkflowStepStatus =
+  (typeof WorkflowStepStatus)[keyof typeof WorkflowStepStatus];
+
+/** Outbound message rails (M6 templates/campaigns/trackable messages). */
+export const MessageChannel = {
+  Email: "EMAIL",
+  Sms: "SMS",
+} as const;
+export type MessageChannel = (typeof MessageChannel)[keyof typeof MessageChannel];
+
+/** Campaign lifecycle (M6): DRAFT → SCHEDULED → SENDING → SENT | FAILED; cancellable pre-send. */
+export const CampaignStatus = {
+  Draft: "DRAFT",
+  Scheduled: "SCHEDULED",
+  Sending: "SENDING",
+  Sent: "SENT",
+  Cancelled: "CANCELLED",
+  Failed: "FAILED",
+} as const;
+export type CampaignStatus = (typeof CampaignStatus)[keyof typeof CampaignStatus];
+
+/** Built-in recipient selectors (M6 v1 — segments beyond these ship with growth analytics v2). */
+export const CampaignAudience = {
+  AllCustomers: "ALL_CUSTOMERS",
+  MarketingOptIn: "MARKETING_OPT_IN",
+  RepeatCustomers: "REPEAT_CUSTOMERS",
+} as const;
+export type CampaignAudience = (typeof CampaignAudience)[keyof typeof CampaignAudience];
+
+/** Per-recipient delivery state (M6). SKIPPED = suppressed/unsubscribed or missing destination. */
+export const CampaignRecipientStatus = {
+  Pending: "PENDING",
+  Sent: "SENT",
+  Failed: "FAILED",
+  Skipped: "SKIPPED",
+} as const;
+export type CampaignRecipientStatus =
+  (typeof CampaignRecipientStatus)[keyof typeof CampaignRecipientStatus];
+
+/** Trackable message events (M6). SENT/FAILED from the rail; OPENED/CLICKED/UNSUBSCRIBED from tracking endpoints. */
+export const MessageEventKind = {
+  Sent: "SENT",
+  Failed: "FAILED",
+  Opened: "OPENED",
+  Clicked: "CLICKED",
+  Unsubscribed: "UNSUBSCRIBED",
+} as const;
+export type MessageEventKind = (typeof MessageEventKind)[keyof typeof MessageEventKind];
+
+/** Report families the export engine can materialize (M6). */
+export const ExportKind = {
+  AuditLogs: "AUDIT_LOGS",
+  Customers: "CUSTOMERS",
+  Orders: "ORDERS",
+  Products: "PRODUCTS",
+  Recommendations: "RECOMMENDATIONS",
+} as const;
+export type ExportKind = (typeof ExportKind)[keyof typeof ExportKind];
+
+export const ExportFormat = {
+  Csv: "CSV",
+  Xlsx: "XLSX",
+  Pdf: "PDF",
+} as const;
+export type ExportFormat = (typeof ExportFormat)[keyof typeof ExportFormat];
+
+export const ExportStatus = {
+  Queued: "QUEUED",
+  Running: "RUNNING",
+  Ready: "READY",
+  Failed: "FAILED",
+} as const;
+export type ExportStatus = (typeof ExportStatus)[keyof typeof ExportStatus];
+
+/** Support ticket lifecycle (M6). RESOLVED keeps the thread; CLOSED is terminal. */
+export const SupportTicketStatus = {
+  Open: "OPEN",
+  WaitingOnCustomer: "WAITING_ON_CUSTOMER",
+  Resolved: "RESOLVED",
+  Closed: "CLOSED",
+} as const;
+export type SupportTicketStatus =
+  (typeof SupportTicketStatus)[keyof typeof SupportTicketStatus];
+
+export const SupportTicketCategory = {
+  Bug: "BUG",
+  Billing: "BILLING",
+  Data: "DATA",
+  Feature: "FEATURE",
+  Other: "OTHER",
+} as const;
+export type SupportTicketCategory =
+  (typeof SupportTicketCategory)[keyof typeof SupportTicketCategory];
+
+export const SupportTicketPriority = {
+  Low: "LOW",
+  Normal: "NORMAL",
+  High: "HIGH",
+  Urgent: "URGENT",
+} as const;
+export type SupportTicketPriority =
+  (typeof SupportTicketPriority)[keyof typeof SupportTicketPriority];
+
+/** Who wrote a ticket message (M6): the merchant user or a platform operator. */
+export const TicketAuthorKind = {
+  Merchant: "MERCHANT",
+  Operator: "OPERATOR",
+} as const;
+export type TicketAuthorKind = (typeof TicketAuthorKind)[keyof typeof TicketAuthorKind];
+
+/** Support-granted access override kinds (M6 admin write actions). COMP_ACCESS = comped window. */
+export const AccessOverrideKind = {
+  CompAccess: "COMP_ACCESS",
+} as const;
+export type AccessOverrideKind = (typeof AccessOverrideKind)[keyof typeof AccessOverrideKind];
+
+/** Platform-admin write actions (M6) — recorded in platform_admin_actions and the audit trail. */
+export const PlatformAdminAction = {
+  OpenSession: "platform.admin.session.open",
+  ExtendTrial: "platform.admin.trial.extend",
+  GrantAccessOverride: "platform.admin.access-override.grant",
+  RevokeAccessOverride: "platform.admin.access-override.revoke",
+  ReplyTicket: "platform.admin.ticket.reply",
+  ResolveTicket: "platform.admin.ticket.resolve",
+  CloseTicket: "platform.admin.ticket.close",
+} as const;
+export type PlatformAdminAction =
+  (typeof PlatformAdminAction)[keyof typeof PlatformAdminAction];
+
+/** Condition-node operands (M6): paths resolved against the workflow run subject. */
+export const ConditionField = {
+  CustomerOrdersCount: "customer.ordersCount",
+  CustomerTotalSpentCents: "customer.totalSpentCents",
+  CustomerAcceptsMarketing: "customer.acceptsMarketing",
+  CustomerTag: "customer.tag",
+  EventTotalCents: "event.totalCents",
+  EventCurrency: "event.currency",
+} as const;
+export type ConditionField = (typeof ConditionField)[keyof typeof ConditionField];
+
+export const ConditionOperator = {
+  Equals: "EQ",
+  NotEquals: "NEQ",
+  GreaterThan: "GT",
+  GreaterThanOrEqual: "GTE",
+  LessThan: "LT",
+  LessThanOrEqual: "LTE",
+  Contains: "CONTAINS",
+} as const;
+export type ConditionOperator =
+  (typeof ConditionOperator)[keyof typeof ConditionOperator];
+
+/** A/B variant labels (M6 campaigns). */
+export const CampaignVariant = {
+  A: "A",
+  B: "B",
+} as const;
+export type CampaignVariant = (typeof CampaignVariant)[keyof typeof CampaignVariant];
+
+/** Why a destination is suppressed (M6 compliance ledger). */
+export const MessageSuppressionReason = {
+  Unsubscribed: "UNSUBSCRIBED",
+  Complaint: "COMPLAINT",
+  Bounce: "BOUNCE",
+  Manual: "MANUAL",
+} as const;
+export type MessageSuppressionReason =
+  (typeof MessageSuppressionReason)[keyof typeof MessageSuppressionReason];
+
+/** Which tracking token authorizes which endpoint (M6). */
+export const TrackingTokenKind = {
+  Open: "open",
+  Click: "click",
+  Unsubscribe: "unsubscribe",
+} as const;
+export type TrackingTokenKind = (typeof TrackingTokenKind)[keyof typeof TrackingTokenKind];

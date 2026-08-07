@@ -55,6 +55,13 @@ const envSchema = z
      */
     PLATFORM_ADMIN_KEY: optionalSecret,
 
+    /**
+     * M6: HMAC key minting/verifying /api/v1/t/* open+click+unsubscribe tokens.
+     * Absent ⇒ the tracking surface reports itself unavailable (503), never
+     * an unsigned link.
+     */
+    TRACKING_SIGNING_SECRET: optionalSecret,
+
     /** Embedded web app bundle location (M3). Default: apps/web/dist. */
     WEB_DIST_DIR: z.string().min(1).optional(),
 

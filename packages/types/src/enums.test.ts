@@ -70,6 +70,8 @@ describe("domain enums", () => {
       "FIRST_RECOMMENDATION_APPROVED",
       "FIRST_AUTOMATION_ENABLED",
       "PAID_SUBSCRIPTION_STARTED",
+      "FIRST_WORKFLOW_ACTIVATED",
+      "FIRST_CAMPAIGN_SENT",
     ]);
     for (const kind of enums.ENGAGEMENT_MILESTONE_KINDS) {
       expect(Object.values(enums.EngagementEventKind), `${kind} must be an engagement kind`).toContain(kind);

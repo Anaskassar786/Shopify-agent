@@ -16,6 +16,8 @@ import { SectionRoadmapPage } from "./pages/SectionRoadmapPage";
 const DashboardPage = lazy(async () => ({ default: (await import("./pages/DashboardPage")).DashboardPage }));
 const AnalyticsPage = lazy(async () => ({ default: (await import("./pages/AnalyticsPage")).AnalyticsPage }));
 const AiCommandCenterPage = lazy(async () => ({ default: (await import("./pages/AiCommandCenterPage")).AiCommandCenterPage }));
+const CampaignsPage = lazy(async () => ({ default: (await import("./pages/CampaignsPage")).CampaignsPage }));
+const ExportsPage = lazy(async () => ({ default: (await import("./pages/ExportsPage")).ExportsPage }));
 const RecommendationsPage = lazy(async () => ({ default: (await import("./pages/RecommendationsPage")).RecommendationsPage }));
 const RecommendationDetailPage = lazy(async () => ({ default: (await import("./pages/RecommendationDetailPage")).RecommendationDetailPage }));
 const AutomationPage = lazy(async () => ({ default: (await import("./pages/AutomationPage")).AutomationPage }));
@@ -61,6 +63,7 @@ export default function App(): ReactNode {
             <Route path="/recommendations" element={<Guarded permission="recommendations:read"><RecommendationsPage /></Guarded>} />
             <Route path="/recommendations/:id" element={<Guarded permission="recommendations:read"><RecommendationDetailPage /></Guarded>} />
             <Route path="/automation" element={<Guarded permission="automation:read"><AutomationPage /></Guarded>} />
+            <Route path="/campaigns" element={<Guarded permission="campaigns:read"><CampaignsPage /></Guarded>} />
             <Route path="/products" element={<Guarded permission="products:read"><ProductsPage /></Guarded>} />
             <Route path="/products/:id" element={<Guarded permission="products:read"><ProductDetailPage /></Guarded>} />
             <Route path="/customers" element={<Guarded permission="customers:read"><CustomersPage /></Guarded>} />
@@ -70,6 +73,7 @@ export default function App(): ReactNode {
             <Route path="/inventory" element={<Guarded permission="inventory:read"><InventoryPage /></Guarded>} />
             <Route path="/notifications" element={<Guarded permission="notifications:read"><NotificationsPage /></Guarded>} />
             <Route path="/audit-logs" element={<Guarded permission="audit:read"><AuditLogsPage /></Guarded>} />
+            <Route path="/exports" element={<Guarded permission="exports:read"><ExportsPage /></Guarded>} />
             <Route path="/billing" element={<Guarded permission="billing:read"><BillingPage /></Guarded>} />
             <Route path="/settings" element={<Guarded permission="store:read"><SettingsPage /></Guarded>} />
             <Route path="/support" element={<SupportPage />} />

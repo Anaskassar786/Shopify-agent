@@ -44,6 +44,13 @@ export const OWNER_PERMISSIONS = [
   "users:read",
   "users:manage",
   "apikeys:manage",
+  // M6: owner inherits every seeded permission (OWNER = PERMISSION_CODES).
+  "campaigns:read",
+  "campaigns:manage",
+  "support:read",
+  "support:manage",
+  "exports:read",
+  "exports:manage",
 ] as const;
 
 export const VIEWER_PERMISSIONS = [
@@ -83,6 +90,8 @@ export interface StubHandlers {
   readonly getWithMeta?: Record<string, PathHandler>;
   readonly post?: Record<string, PathHandler>;
   readonly patch?: Record<string, PathHandler>;
+  readonly put?: Record<string, PathHandler>;
+  readonly download?: Record<string, PathHandler>;
   readonly postPublic?: Record<string, PathHandler>;
 }
 
@@ -93,6 +102,8 @@ export interface StubClient {
     readonly getWithMeta: Mock;
     readonly post: Mock;
     readonly patch: Mock;
+    readonly put: Mock;
+    readonly download: Mock;
     readonly postPublic: Mock;
   };
 }
@@ -128,6 +139,8 @@ export function createStubClient(handlers: StubHandlers): StubClient {
     ),
     post: vi.fn((path: string, body?: unknown) => resolve(handlers.post, "POST", path, body)),
     patch: vi.fn((path: string, body?: unknown) => resolve(handlers.patch, "PATCH", path, body)),
+    put: vi.fn((path: string, body?: unknown) => resolve(handlers.put, "PUT", path, body)),
+    download: vi.fn((path: string) => resolve(handlers.download, "DOWNLOAD", path, undefined)),
     postPublic: vi.fn((path: string, body?: unknown) => resolve(handlers.postPublic, "POST(public)", path, body)),
   };
 

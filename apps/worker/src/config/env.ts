@@ -42,6 +42,17 @@ const schema = z.object({
   SMTP_USER: z.string().min(1).optional(),
   SMTP_PASSWORD: z.string().min(1).optional(),
   EMAIL_FROM: z.string().email().default("noreply@profittool.ai"),
+  /** M6 automation center — one TICK scans the whole plane, fans out leaf jobs. */
+  AUTOMATION_TICK_INTERVAL_MS: z.coerce.number().int().min(5_000).max(3_600_000).default(60_000),
+  CAMPAIGN_SEND_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(50),
+  CAMPAIGN_SEND_THROTTLE_MS: z.coerce.number().int().min(0).max(120_000).default(2_000),
+  /** M6 SMS channel — absent trio = sms sender unavailable (failsafe, like SMTP). */
+  SMS_TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
+  SMS_TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
+  SMS_TWILIO_FROM_NUMBER: z.string().min(1).optional(),
+  /** M6 tracking links — HMAC signing secret + public base for pixel/redirect URLs. */
+  TRACKING_SIGNING_SECRET: z.string().min(1).optional(),
+  TRACKING_PUBLIC_BASE_URL: z.string().url().optional(),
 });
 
 const hostedSchema = schema.superRefine((env, ctx) => {

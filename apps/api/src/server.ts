@@ -43,6 +43,11 @@ import { recommendationsRouter } from "./modules/ai/recommendations.router";
 import { aiRouter } from "./modules/ai/ai.router";
 import { automationRouter } from "./modules/ai/automation.router";
 import { searchRouter } from "./modules/search/search.router";
+import { workflowsRouter } from "./modules/automation-center/workflows.router";
+import { campaignsRouter } from "./modules/automation-center/campaigns.router";
+import { exportsRouter } from "./modules/automation-center/exports.router";
+import { supportRouter } from "./modules/automation-center/support.router";
+import { trackingRouter } from "./modules/automation-center/tracking.router";
 import { createRealtimeGateway } from "./modules/realtime/gateway";
 import { createSpaHandler, mountSpa } from "./static/spa";
 import {
@@ -334,7 +339,20 @@ function buildRouters(
         shopifyApiKey: env.SHOPIFY_API_KEY,
       }),
       engagement: engagementRouter({ db: db.db, jwt }),
-      admin: adminRouter({ db: db.db, platformAdminKey: env.PLATFORM_ADMIN_KEY, audit }),
+      admin: adminRouter({
+        db: db.db,
+        platformAdminKey: env.PLATFORM_ADMIN_KEY,
+        audit,
+        queue,
+        persistence,
+      }),
+      // M6 Automation Center plane (workflows + campaigns + exports + support
+      // share the queue producers; tracking is the public HMAC-token surface).
+      workflows: workflowsRouter({ db: db.db, jwt, audit, queue, persistence, logger }),
+      campaigns: campaignsRouter({ db: db.db, jwt, audit, queue, persistence, logger }),
+      exports: exportsRouter({ db: db.db, jwt, audit, queue, persistence, logger }),
+      support: supportRouter({ db: db.db, jwt, audit }),
+      tracking: trackingRouter({ db: db.db, logger, trackingSecret: env.TRACKING_SIGNING_SECRET }),
     },
   };
 }
@@ -360,5 +378,10 @@ function stubApiV1(): AppRouters["apiV1"] {
     billing: Router(),
     engagement: Router(),
     admin: Router(),
+    workflows: Router(),
+    campaigns: Router(),
+    exports: Router(),
+    support: Router(),
+    tracking: Router(),
   };
 }

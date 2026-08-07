@@ -1,5 +1,6 @@
 import {
   ChartColumn,
+  Download,
   Lightbulb,
   LayoutDashboard,
   Megaphone,
@@ -151,10 +152,11 @@ export const APP_SECTIONS: readonly AppSection[] = [
     label: "Campaigns",
     icon: Megaphone,
     group: "Intelligence",
-    permission: null,
-    availability: "roadmap",
-    milestone: "M6",
-    description: "AI-drafted marketing campaigns measured against real revenue.",
+    permission: "campaigns:read",
+    availability: "live",
+    milestone: null,
+    description:
+      "Email and SMS campaigns with A/B variants, tracked opens and clicks, and honest unsubscribe handling.",
   },
   {
     key: "notifications",
@@ -201,6 +203,18 @@ export const APP_SECTIONS: readonly AppSection[] = [
     description: "Store profile, appearance, branding, AI preferences and sync.",
   },
   {
+    key: "exports",
+    path: "/exports",
+    label: "Exports",
+    icon: Download,
+    group: "System",
+    permission: "exports:read",
+    availability: "live",
+    milestone: null,
+    description:
+      "Queued CSV, XLSX and PDF reports of your real data, downloadable for seven days after they finish.",
+  },
+  {
     key: "support",
     path: "/support",
     label: "Support",
@@ -209,7 +223,7 @@ export const APP_SECTIONS: readonly AppSection[] = [
     permission: null,
     availability: "live",
     milestone: null,
-    description: "Help, answers and a direct line to the team.",
+    description: "Tickets with the team, answers about this build, and a direct mail line.",
   },
 ];
 

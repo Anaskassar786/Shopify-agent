@@ -1,15 +1,19 @@
 import {
   and,
   billingEvents,
+  campaigns,
   desc,
   eq,
   gte,
   lt,
+  messageEvents,
   plans,
   sql,
   stores,
   subscriptions,
   withStoreScope,
+  workflowRuns,
+  workflowRunSteps,
   aiCallLogs,
   actionExecutions,
 } from "@profit/db";
@@ -20,13 +24,18 @@ import {
   BillingEventType,
   BillingInterval,
   ExecutionStatus,
+  MessageChannel,
+  MessageEventKind,
   PlanCode,
   SubscriptionStatus,
   UsageMeter,
+  WorkflowNodeKind,
+  WorkflowStepStatus,
 } from "@profit/types";
 import { evaluateAccess, parseEntitlements, priceForInterval, quotaForMeter, TRIAL_GRACE_DAYS } from "./plans";
 import type { AccessDecision, PlanEntitlements } from "./plans";
 import type { BillingChargeProvider } from "./ports";
+import { AccessOverrideService } from "./access-override.service";
 
 /**
  * BillingService — every subscription-lifecycle read/write lives here (P2
@@ -123,7 +132,11 @@ export interface MeterUsage {
 }
 
 export class BillingService {
-  constructor(private readonly db: ProfitDb) {}
+  private readonly accessOverrides: AccessOverrideService;
+
+  constructor(private readonly db: ProfitDb) {
+    this.accessOverrides = new AccessOverrideService(db);
+  }
 
   /** Current subscription + plan + parsed entitlements, or null when the store never onboarded billing. */
   async getSubscriptionState(storeId: string): Promise<{
@@ -148,14 +161,90 @@ export class BillingService {
     });
   }
 
-  /** Effective access decision for the revenue-action gate (single source). */
+  /**
+   * Effective access decision for the revenue-action gate (single source).
+   * M6: a live support-granted access override bypasses ONLY the status gate
+   * (quota checks below remain fully enforced from the store's plan).
+   */
   async evaluateStoreAccess(storeId: string, now = new Date()): Promise<AccessDecision & { status: SubscriptionStatus | null }> {
     const { subscription } = await this.getSubscriptionState(storeId);
     if (subscription === null) {
       return { revenueActionsAllowed: false, blockedReason: "Start your free trial to unlock revenue actions", status: null };
     }
     const decision = evaluateAccess(subscription, now);
+    if (decision.revenueActionsAllowed) return { ...decision, status: subscription.status };
+    const override = await this.accessOverrides.findActiveForStore(storeId, now);
+    if (override !== null) {
+      return { revenueActionsAllowed: true, blockedReason: null, status: subscription.status };
+    }
     return { ...decision, status: subscription.status };
+  }
+
+  /**
+   * M6 admin write action: extend the trial window. TRIALING adds days on top
+   * of the current horizon; TRIAL_EXPIRED reactivates into a fresh window.
+   * Ledger + subscription update commit in ONE scoped transaction.
+   */
+  async extendTrial(
+    storeId: string,
+    additionalDays: number,
+    now = new Date(),
+    metadata: Readonly<Record<string, unknown>> = {},
+  ): Promise<SubscriptionRow> {
+    if (!Number.isInteger(additionalDays) || additionalDays < 1 || additionalDays > 90) {
+      throw new BillingConflictError("trial extension must be 1..90 days", { additionalDays });
+    }
+    return withStoreScope(this.db, storeId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(subscriptions)
+        .where(eq(subscriptions.storeId, storeId))
+        .limit(1);
+      const existing = rows[0];
+      if (existing === undefined) {
+        throw new BillingConflictError("no subscription to extend — the store never started a trial");
+      }
+      const fromStatus = existing.status;
+      let newTrialEndsAt: Date;
+      if (existing.status === SubscriptionStatus.Trialing) {
+        const base = existing.trialEndsAt !== null && existing.trialEndsAt.getTime() > now.getTime()
+          ? existing.trialEndsAt.getTime()
+          : now.getTime();
+        newTrialEndsAt = new Date(base + additionalDays * DAY_MS);
+      } else if (existing.status === SubscriptionStatus.TrialExpired) {
+        newTrialEndsAt = new Date(now.getTime() + additionalDays * DAY_MS);
+      } else {
+        throw new BillingConflictError(
+          `trial extension applies to TRIALING/TRIAL_EXPIRED subscriptions (this one is ${existing.status})`,
+          { status: existing.status },
+        );
+      }
+      const updated = await tx
+        .update(subscriptions)
+        .set({
+          status: SubscriptionStatus.Trialing,
+          trialEndsAt: newTrialEndsAt,
+          updatedAt: now,
+        })
+        .where(eq(subscriptions.id, existing.id))
+        .returning();
+      const row = updated[0];
+      if (row === undefined) throw new BillingConflictError("subscription update returned no row");
+      await this.recordEvent(tx, {
+        storeId,
+        type: BillingEventType.TrialExtended,
+        fromStatus,
+        toStatus: SubscriptionStatus.Trialing,
+        metadata: {
+          additionalDays,
+          trialEndsAt: newTrialEndsAt.toISOString(),
+          reactivated: fromStatus === SubscriptionStatus.TrialExpired,
+          ...metadata,
+        },
+      });
+      const { createdAt: _c1, updatedAt: _c2, ...narrow } = row;
+      return narrow as SubscriptionRow;
+    });
   }
 
   /**
@@ -449,8 +538,9 @@ export class BillingService {
         return rows[0]?.used ?? 0;
       }
       case UsageMeter.EmailsSent: {
-        // Each recipient actually mailed is one unit (tool_ref.sentTo checkpoint).
-        const rows = await tx
+        // Sources (disjoint ledgers, summed): M4 recovery-email tool
+        // checkpoints + M6 campaign SENT events + M6 workflow SEND_EMAIL steps.
+        const m4 = await tx
           .select({
             used: sql<number>`coalesce(sum(case when jsonb_typeof(${actionExecutions.toolRef} -> 'sentTo') = 'array' then jsonb_array_length(${actionExecutions.toolRef} -> 'sentTo') else 0 end), 0)::int`,
           })
@@ -463,7 +553,60 @@ export class BillingService {
               lt(actionExecutions.createdAt, window.to),
             ),
           );
-        return rows[0]?.used ?? 0;
+        const campaignRows = await tx
+          .select({ used: sql<number>`count(*)::int` })
+          .from(messageEvents)
+          .innerJoin(campaigns, eq(messageEvents.campaignId, campaigns.id))
+          .where(
+            and(
+              eq(messageEvents.storeId, storeId),
+              eq(messageEvents.kind, MessageEventKind.Sent),
+              eq(campaigns.channel, MessageChannel.Email),
+              gte(messageEvents.createdAt, window.from),
+              lt(messageEvents.createdAt, window.to),
+            ),
+          );
+        const workflowRows = await tx
+          .select({ used: sql<number>`count(*)::int` })
+          .from(workflowRunSteps)
+          .where(
+            and(
+              eq(workflowRunSteps.storeId, storeId),
+              eq(workflowRunSteps.nodeKind, WorkflowNodeKind.SendEmail),
+              eq(workflowRunSteps.status, WorkflowStepStatus.Completed),
+              gte(workflowRunSteps.completedAt, window.from),
+              lt(workflowRunSteps.completedAt, window.to),
+            ),
+          );
+        return (m4[0]?.used ?? 0) + (campaignRows[0]?.used ?? 0) + (workflowRows[0]?.used ?? 0);
+      }
+      case UsageMeter.SmsSent: {
+        const campaignRows = await tx
+          .select({ used: sql<number>`count(*)::int` })
+          .from(messageEvents)
+          .innerJoin(campaigns, eq(messageEvents.campaignId, campaigns.id))
+          .where(
+            and(
+              eq(messageEvents.storeId, storeId),
+              eq(messageEvents.kind, MessageEventKind.Sent),
+              eq(campaigns.channel, MessageChannel.Sms),
+              gte(messageEvents.createdAt, window.from),
+              lt(messageEvents.createdAt, window.to),
+            ),
+          );
+        const workflowRows = await tx
+          .select({ used: sql<number>`count(*)::int` })
+          .from(workflowRunSteps)
+          .where(
+            and(
+              eq(workflowRunSteps.storeId, storeId),
+              eq(workflowRunSteps.nodeKind, WorkflowNodeKind.SendSms),
+              eq(workflowRunSteps.status, WorkflowStepStatus.Completed),
+              gte(workflowRunSteps.completedAt, window.from),
+              lt(workflowRunSteps.completedAt, window.to),
+            ),
+          );
+        return (campaignRows[0]?.used ?? 0) + (workflowRows[0]?.used ?? 0);
       }
       case UsageMeter.AutomationRuns: {
         const rows = await tx
@@ -477,10 +620,19 @@ export class BillingService {
               lt(actionExecutions.startedAt, window.to),
             ),
           );
-        return rows[0]?.used ?? 0;
+        // M6 workflow runs meter by run start (one run = one unit).
+        const workflowRows = await tx
+          .select({ used: sql<number>`count(*)::int` })
+          .from(workflowRuns)
+          .where(
+            and(
+              eq(workflowRuns.storeId, storeId),
+              gte(workflowRuns.createdAt, window.from),
+              lt(workflowRuns.createdAt, window.to),
+            ),
+          );
+        return (rows[0]?.used ?? 0) + (workflowRows[0]?.used ?? 0);
       }
-      case UsageMeter.SmsSent:
-        return 0; // no SMS tool exists yet — the meter is contract-ready, never fabricated
     }
   }
 
@@ -545,11 +697,16 @@ export class BillingService {
       now,
     );
     if (!access.revenueActionsAllowed) {
-      return {
-        reason: "SUBSCRIPTION_INACTIVE",
-        message: access.blockedReason ?? "Subscription is not active",
-        details: { status: state.subscription?.status ?? null },
-      };
+      // M6: a live support override bypasses the status gate only — plan
+      // quota checks below still apply in full.
+      const override = await this.accessOverrides.findActiveForStore(storeId, now);
+      if (override === null) {
+        return {
+          reason: "SUBSCRIPTION_INACTIVE",
+          message: access.blockedReason ?? "Subscription is not active",
+          details: { status: state.subscription?.status ?? null },
+        };
+      }
     }
     if (state.plan === null || state.subscription === null) {
       return {

@@ -5,9 +5,9 @@ import { OWNER_PERMISSIONS, VIEWER_PERMISSIONS } from "../test-support/render";
 const hasAll = (p: string): boolean => (OWNER_PERMISSIONS as readonly string[]).includes(p);
 const hasViewer = (p: string): boolean => (VIEWER_PERMISSIONS as readonly string[]).includes(p);
 
-describe("section registry (P9: 15 surfaces)", () => {
-  it("declares exactly the 15 definitive sections in P9 order", () => {
-    expect(APP_SECTIONS).toHaveLength(15);
+describe("section registry (P9 surfaces, 16 after M6 Exports)", () => {
+  it("declares the definitive sections in P9 order (M6 added Exports to System)", () => {
+    expect(APP_SECTIONS).toHaveLength(16);
     expect(APP_SECTIONS.map((s) => s.label)).toEqual([
       "Dashboard",
       "AI Command Center",
@@ -23,25 +23,28 @@ describe("section registry (P9: 15 surfaces)", () => {
       "Audit Logs",
       "Billing",
       "Settings",
+      "Exports",
       "Support",
     ]);
   });
 
   it("has unique keys and paths", () => {
-    expect(new Set(APP_SECTIONS.map((s) => s.key)).size).toBe(15);
-    expect(new Set(APP_SECTIONS.map((s) => s.path)).size).toBe(15);
+    expect(new Set(APP_SECTIONS.map((s) => s.key)).size).toBe(16);
+    expect(new Set(APP_SECTIONS.map((s) => s.path)).size).toBe(16);
   });
 
   it("every section belongs to a declared group with content", () => {
     for (const group of SECTION_GROUPS) {
       expect(sectionsForGroup(group).length).toBeGreaterThan(0);
     }
-    expect(SECTION_GROUPS.flatMap(sectionsForGroup)).toHaveLength(15);
+    expect(SECTION_GROUPS.flatMap(sectionsForGroup)).toHaveLength(16);
   });
 
   it("roadmap sections declare a milestone and live ones do not", () => {
     const roadmap = APP_SECTIONS.filter((s) => s.availability === "roadmap").map((s) => s.key);
-    expect(roadmap.sort()).toEqual(["campaigns"]); // M4 shipped ai-command-center, recommendations, automation
+    // M6 shipped campaigns + exports — the registry currently has zero roadmap
+    // entries; future milestones re-add them with honest milestone dates.
+    expect(roadmap).toEqual([]);
     for (const section of APP_SECTIONS) {
       if (section.availability === "roadmap") expect(section.milestone).not.toBeNull();
       else expect(section.milestone).toBeNull();
@@ -57,17 +60,19 @@ describe("section registry (P9: 15 surfaces)", () => {
 
   it("visibleSections honors the permission matrix", () => {
     const owner = visibleSections(hasAll);
-    expect(owner).toHaveLength(15);
+    expect(owner).toHaveLength(16);
     const viewer = visibleSections(hasViewer);
     const viewerKeys = viewer.map((s) => s.key);
     // Viewer: dashboard, ai-command-center, recommendations, analytics,
-    // campaigns (permissionless), notifications, settings (store:read), support.
+    // notifications, settings (store:read), support (permissionless help).
     expect(viewerKeys).toContain("dashboard");
     expect(viewerKeys).toContain("notifications");
-    expect(viewerKeys).toContain("campaigns");
     expect(viewerKeys).toContain("support");
     expect(viewerKeys).not.toContain("products");
     expect(viewerKeys).not.toContain("audit-logs");
     expect(viewerKeys).not.toContain("billing");
+    // M6: campaigns/exports joined the permission matrix — viewers lack them.
+    expect(viewerKeys).not.toContain("campaigns");
+    expect(viewerKeys).not.toContain("exports");
   });
 });

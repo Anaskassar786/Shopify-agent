@@ -37,11 +37,15 @@ describe("buildPaletteItems (pure core)", () => {
 
   it("marks roadmap sections with their milestone hint", () => {
     const items = buildPaletteItems({ query: "", sections: SECTIONS, canSyncAll: false, canMarkAllRead: false, actions, search: undefined });
+    // M6 promoted the last roadmap surface — every palette entry is live now
+    // and carries no milestone hint (a roadmap section would show one).
     const campaigns = items.find((i) => i.label === "Campaigns");
-    expect(campaigns?.hint).toBe("arrives in M6");
-    // M4 surfaces went live: they carry no milestone hint anymore.
+    expect(campaigns?.hint ?? null).toBeNull();
     const ai = items.find((i) => i.label === "AI Command Center");
     expect(ai?.hint ?? null).toBeNull();
+    const exportsItem = items.find((i) => i.label === "Exports");
+    expect(exportsItem).toBeDefined();
+    expect(exportsItem?.hint ?? null).toBeNull();
   });
 
   it("gates actions behind their permissions", () => {

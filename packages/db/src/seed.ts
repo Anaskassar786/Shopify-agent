@@ -40,6 +40,13 @@ export const PERMISSION_CODES = [
   "users:read",
   "users:manage",
   "apikeys:manage",
+  // M6: campaigns, support tickets, exports
+  "campaigns:read",
+  "campaigns:manage",
+  "support:read",
+  "support:manage",
+  "exports:read",
+  "exports:manage",
 ] as const;
 export type PermissionCode = (typeof PERMISSION_CODES)[number];
 
@@ -71,6 +78,12 @@ const ROLE_MATRIX: Readonly<Record<UserRole, readonly PermissionCode[]>> = {
     "billing:read",
     "audit:read",
     "users:read",
+    "campaigns:read",
+    "campaigns:manage",
+    "support:read",
+    "support:manage",
+    "exports:read",
+    "exports:manage",
   ],
   STAFF: [
     "store:read",
@@ -82,6 +95,9 @@ const ROLE_MATRIX: Readonly<Record<UserRole, readonly PermissionCode[]>> = {
     "recommendations:read",
     "notifications:read",
     "notifications:update",
+    "support:read",
+    "support:manage",
+    "exports:read",
   ],
   ANALYST: [
     "store:read",
@@ -92,9 +108,28 @@ const ROLE_MATRIX: Readonly<Record<UserRole, readonly PermissionCode[]>> = {
     "analytics:read",
     "recommendations:read",
     "audit:read",
+    "campaigns:read",
+    "exports:read",
+    "exports:manage",
+    "support:read",
+    "support:manage",
   ],
-  SUPPORT: ["store:read", "customers:read", "orders:read", "audit:read"],
-  VIEWER: ["store:read", "analytics:read", "recommendations:read", "notifications:read"],
+  SUPPORT: [
+    "store:read",
+    "customers:read",
+    "orders:read",
+    "audit:read",
+    "support:read",
+    "support:manage",
+  ],
+  VIEWER: [
+    "store:read",
+    "analytics:read",
+    "recommendations:read",
+    "notifications:read",
+    "support:read",
+    "support:manage",
+  ],
 };
 
 interface PlanSeed {

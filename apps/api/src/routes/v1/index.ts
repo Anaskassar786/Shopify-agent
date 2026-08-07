@@ -19,6 +19,13 @@ export interface ApiV1Routers {
   readonly billing: ExpressRouter;
   readonly engagement: ExpressRouter;
   readonly admin: ExpressRouter;
+  /** M6 Automation Center plane. */
+  readonly workflows: ExpressRouter;
+  readonly campaigns: ExpressRouter;
+  readonly exports: ExpressRouter;
+  readonly support: ExpressRouter;
+  /** Public tracking endpoints (no session — HMAC token is the authorization). */
+  readonly tracking: ExpressRouter;
 }
 
 /**
@@ -28,6 +35,7 @@ export interface ApiV1Routers {
  *   M3: notifications, search, audit-logs, subscription (+ WS at /api/v1/realtime)
  *   M4: recommendations, ai, automation
  *   M5: billing (charges), engagement (growth telemetry), admin (platform panel)
+ *   M6: workflows, campaigns, exports, support, admin writes, tracking (public)
  * Versioning rule (P2): breaking changes ship under /api/v2; v1 stays stable.
  */
 export function createApiV1Router(modules: ApiV1Routers): ExpressRouter {
@@ -50,5 +58,10 @@ export function createApiV1Router(modules: ApiV1Routers): ExpressRouter {
   router.use("/billing", modules.billing);
   router.use("/engagement", modules.engagement);
   router.use("/admin", modules.admin);
+  router.use("/workflows", modules.workflows);
+  router.use("/campaigns", modules.campaigns);
+  router.use("/exports", modules.exports);
+  router.use("/support", modules.support);
+  router.use("/t", modules.tracking);
   return router;
 }

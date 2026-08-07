@@ -23,6 +23,7 @@ import {
 import { loadWorkerEnv, type WorkerEnv } from "../config/env";
 import { registerWorkerJobs } from "../server";
 import type { AiProvider, EmailSender } from "@profit/ai";
+import type { SmsSender } from "@profit/automation";
 import type { WorkerDeps } from "../handlers/deps";
 
 /**
@@ -72,6 +73,10 @@ export interface WorkerHarnessOptions {
   /** AI plane overrides — default null exercises the failsafe path. */
   readonly aiProvider?: AiProvider | null;
   readonly emailSender?: EmailSender | null;
+  /** M6 plane overrides — default null sms = unavailable, fixed tracking surface. */
+  readonly smsSender?: SmsSender | null;
+  readonly trackingSecret?: string | null;
+  readonly trackingBaseUrl?: string;
 }
 
 /**
@@ -156,6 +161,9 @@ export async function buildWorkerTestEnvironment(
     env, logger, db: dbHandle, queue, persistence, cache, pubsub, encryption,
     aiProvider: options.aiProvider ?? null,
     emailSender: options.emailSender ?? null,
+    smsSender: options.smsSender ?? null,
+    trackingSecret: options.trackingSecret ?? "worker-test-tracking-secret",
+    trackingBaseUrl: options.trackingBaseUrl ?? "https://api.profit.test",
   };
 
   persistence.attach(queue);

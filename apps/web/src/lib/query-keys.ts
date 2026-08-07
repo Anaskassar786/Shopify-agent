@@ -43,4 +43,26 @@ export const ADMIN_QK = {
   overview: ["admin", "overview"] as const,
   merchants: (page: number) => ["admin", "merchants", page] as const,
   aiUsage: ["admin", "ai-usage"] as const,
+  /** M6 write surface + support inbox. */
+  tickets: (page: number, attention: boolean, status: string) =>
+    ["admin", "tickets", page, attention, status] as const,
+  ticket: (id: string) => ["admin", "tickets", "detail", id] as const,
+  actions: (page: number) => ["admin", "actions", page] as const,
+  overrides: (storeId: string) => ["admin", "overrides", storeId] as const,
+};
+
+/** M6 Automation Center keys (tenant-scoped merchant app). */
+export const M6_QK = {
+  workflows: ["workflows"] as const,
+  workflow: (id: string) => ["workflows", id] as const,
+  workflowRuns: (id: string, page: number) => ["workflows", id, "runs", page] as const,
+  runSteps: (workflowId: string, runId: string) => ["workflows", workflowId, "run", runId] as const,
+  campaigns: ["campaigns"] as const,
+  campaign: (id: string) => ["campaigns", id] as const,
+  campaignStats: (id: string) => ["campaigns", id, "stats"] as const,
+  campaignTemplates: (channel: string) => ["campaigns", "templates", channel] as const,
+  suppressions: (channel: string, page: number) => ["campaigns", "suppressions", channel, page] as const,
+  exports: (page: number) => ["exports", page] as const,
+  supportTickets: (page: number) => ["support", "tickets", page] as const,
+  supportTicket: (id: string) => ["support", "tickets", id] as const,
 };

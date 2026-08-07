@@ -27,6 +27,8 @@ packages/
               recommendations · executor · attribution (M4)
   billing/    Billing + growth plane: plans/entitlements · Shopify charge adapter · trial
               lifecycle · usage metering · reconcile · churn · funnel · growth analytics (M5)
+  automation/ Workflow DAG engine + executor · campaign sender · closed template catalog ·
+              HMAC tracking · zero-dep CSV/XLSX/PDF exporters · support tickets (M6)
 ```
 
 ## Quick start
@@ -44,8 +46,8 @@ pnpm dev:worker                      # worker on :3100 (health) — BullMQ when 
 
 | Gate | Command | Standard |
 |---|---|---|
-| Types | `pnpm -r run typecheck` | TS strict, zero errors (15 projects) |
-| Tests | `pnpm -r run test` | all suites green = 722 |
+| Types | `pnpm -r run typecheck` | TS strict, zero errors (16 projects) |
+| Tests | `pnpm -r run test` | all suites green = 974 passed + 4 Redis-gated skips |
 | Coverage | per-package `vitest run --coverage` | gated ≥80 stmt / 75 branch |
 | Build | `pnpm -r run build` | api + worker bundles, web vite build (lazy chunks) |
 | Migrations | `pnpm --filter @profit/db run generate` | schema changes = migrations only |
@@ -68,7 +70,8 @@ CI: `.github/workflows/ci.yml` (typecheck → tests → build → integration vs
 - ✅ **M3 Web Shell + Dashboard** — `packages/ui` design system (dark-default tokens, 14 components, SVG charts) · `apps/web` embedded app (App Bridge v4, one-origin serving from the API, lazy route chunks) · 15-section shell with realtime notification drawer + ⌘K palette/global search · live dashboard (revenue/orders/customers/AOV, store health, recent activity, inventory alerts) · catalog/inventory/audit/billing/settings pages · onboarding wizard + trial · offline-aware QueryBoundary everywhere · 121 new tests (465 total) · [milestone doc](docs/architecture/M3-web-shell-dashboard.md)
 - ✅ **M4 AI Revenue Loop v1** — `packages/ai` decision engine: Gemini provider (structured JSON, repair pass, per-call micro$ metering) · PII-minimized Business Context Builder + deterministic Store Health · 8-rule catalog (numbers come from rules, never the model) · 5 agents with versioned prompts · server-side calibration (confidence caps, priority floor, risk max, acceptance-rate learning) · recommendations + immutable evidence + explainability UI · CAS approval state machine · discount/email tools with idempotent executions + step resume · automation v1 (MANUAL/SEMI_AUTOMATIC/FULLY_AUTOMATIC with dual caps) · attribution v1 (checkout-token → discount-code → window chain) · 8th sync module CHECKOUTS · AI Command Center, decision queue, automation policy pages · AI overview card on the dashboard · +132 M4 tests (597 total) · [milestone doc](docs/architecture/M4-ai-revenue-loop.md)
 - ✅ **M5 Billing + Growth Engine** — `packages/billing`: plans + entitlement matrix as data · Shopify recurring charges (subscribe → preserved-trial decision screen → live-API callback, daily reconcile sweep — Shopify pushes no billing webhooks) · ONE access gate (`evaluateAccess`) wired into API guards, scheduled-AI fan-out and the email-execution preflight · D0–D3 trial journey (hourly tick: nudges → expiry → suspension, ledger-deduped sends) · convergent `usage_records` metering + quota checks (typed UPGRADE_REQUIRED / QUOTA_EXCEEDED refusals) · `billing_events` ledger (install seeds TRIAL_STARTED in the same tx) · `engagement_events` funnel with partial-unique milestone dedupe (7 milestones, OAuth→paid) · ROI read-model (measured attribution ÷ metered AI cost, honest cost side) · key-gated read-only Super Admin API + standalone `/admin` web console (memory-only key, cross-tenant by documented design) · Billing page v2 (plan comparison, meter bars, ledger feed, ROI block, Shopify charge flow with `_top` redirect) + upgrade-CTA denial UX · +125 tests (722 total) · [milestone doc](docs/architecture/M5-billing-growth.md)
-- ◻ M6 Automation Center + Campaigns — next
+- ✅ **M6 Automation Center + Campaigns** — `packages/automation` plane: workflow **DAG engine** (server-authoritative validator on save/activate; immutable versions; trigger/condition/wait/send-email/send-sms/tag/discount nodes; delay parking with tick-resume; per-step idempotent run ledger) · **builder UI** (pure graph-ops module + layered canvas with automatic YES/NO branch discipline, lint-gated activate) · three trigger kinds (manual · 5-field UTC cron materialized by the worker tick · Shopify-webhook events deduped per delivery) · **email/SMS campaign centers** (templates on a closed 11-variable catalog with honest 409s · A/B variants with merchant-picked winner · sender-appended unsubscribe + durable suppression ledger) · **tracking pixel/links** on stateless HMAC tokens (threat model in the milestone doc — no session, no tenant data in claims, verification never touches Postgres hot-path) · **campaign batching** (50/batch · 2s throttle · BullMQ jobId dedupe against double-send races) · **zero-dependency exports** (own CSV/XLSX/PDF writers · 50k-row cap · one-click audit-log export) · **support tickets** (merchant workspace + cross-tenant operator inbox, both on one thread ledger) · **admin v2** (15-min step-up sessions gate every write — key still never stored; ticket reply/transition, trial extension with `TRIAL_EXTENDED` billing event, time-boxed access overrides, operator action log) · 16-section shell is fully live (zero roadmap placeholders left) · +252 tests (974 passed + 4 Redis-gated skips) · [milestone doc](docs/architecture/M6-automation-campaigns.md)
+- ◻ M7 App Store Readiness — next
 
-Migrations: `packages/db/drizzle` (0000 core · 0001 shopify core · 0002 RLS · 0003 data plane · 0004 notifications+onboarding · 0005 AI engine · 0006 billing+growth).
+Migrations: `packages/db/drizzle` (0000 core · 0001 shopify core · 0002 RLS · 0003 data plane · 0004 notifications+onboarding · 0005 AI engine · 0006 billing+growth · 0007 automation+campaigns).
 Seed after migrate: `pnpm --filter @profit/db run seed`.

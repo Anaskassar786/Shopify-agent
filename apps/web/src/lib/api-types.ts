@@ -643,3 +643,342 @@ export interface AdminAiUsageRow {
   readonly tokens: number;
   readonly costMicros: number;
 }
+
+/* ── M6: Automation Center (workflows / campaigns / exports / support) ────
+ * Every shape mirrors the M6 routers/workflows.router.ts, campaigns.router.ts,
+ * exports.router.ts, support.router.ts and admin.router.ts responses EXACTLY
+ * (definition contract: packages/automation/src/definition.ts). */
+
+export type WorkflowNodeKindDto =
+  | "TRIGGER"
+  | "CONDITION"
+  | "DELAY"
+  | "SEND_EMAIL"
+  | "SEND_SMS"
+  | "TAG_CUSTOMER"
+  | "CREATE_DISCOUNT";
+
+export type WorkflowTriggerKindDto = "MANUAL" | "SCHEDULE" | "EVENT";
+export type WorkflowStatusDto = "DRAFT" | "ACTIVE" | "PAUSED" | "ARCHIVED";
+export type WorkflowRunStatusDto = "RUNNING" | "WAITING" | "COMPLETED" | "FAILED" | "CANCELLED";
+export type WorkflowStepStatusDto = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "SKIPPED";
+
+export interface WorkflowNodeDto {
+  readonly id: string;
+  readonly kind: WorkflowNodeKindDto;
+  /** Shape depends on kind — see definition.ts schemas; kept open on the wire. */
+  readonly config: Readonly<Record<string, unknown>>;
+}
+
+export interface WorkflowEdgeDto {
+  readonly from: string;
+  readonly to: string;
+  readonly branch?: "YES" | "NO";
+}
+
+export interface WorkflowDefinitionDto {
+  readonly nodes: readonly WorkflowNodeDto[];
+  readonly edges: readonly WorkflowEdgeDto[];
+}
+
+export interface WorkflowRowDto {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly status: WorkflowStatusDto;
+  readonly activeVersionId: string | null;
+  readonly nextFireAt: string | null;
+  readonly createdByUserId: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface WorkflowVersionRowDto {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly version: number;
+  readonly definition: WorkflowDefinitionDto;
+  readonly createdByUserId: string | null;
+  readonly createdAt: string;
+}
+
+export interface WorkflowCreateResponse {
+  readonly workflow: WorkflowRowDto;
+  readonly version: WorkflowVersionRowDto;
+}
+
+export interface WorkflowDetailResponse {
+  readonly workflow: WorkflowRowDto;
+  readonly versions: readonly WorkflowVersionRowDto[];
+  /** Latest ACTIVE version's definition — null while the workflow is a draft. */
+  readonly activeDefinition: WorkflowDefinitionDto | null;
+}
+
+export interface WorkflowRunRowDto {
+  readonly id: string;
+  readonly workflowId: string;
+  readonly versionId: string;
+  readonly status: WorkflowRunStatusDto;
+  readonly triggerKind: WorkflowTriggerKindDto;
+  readonly triggerEventId: string;
+  readonly subject: unknown;
+  readonly resumeAt: string | null;
+  readonly resumeFromNodeId: string | null;
+  readonly error: string | null;
+  readonly startedAt: string | null;
+  readonly completedAt: string | null;
+  readonly createdAt: string;
+}
+
+export interface WorkflowRunStepRowDto {
+  readonly id: string;
+  readonly runId: string;
+  readonly nodeId: string;
+  readonly nodeKind: WorkflowNodeKindDto;
+  readonly status: WorkflowStepStatusDto;
+  readonly attempts: number;
+  readonly detail: unknown;
+  readonly error: string | null;
+  readonly startedAt: string | null;
+  readonly completedAt: string | null;
+  readonly createdAt: string;
+}
+
+export interface WorkflowRunsResponse {
+  readonly runs: readonly WorkflowRunRowDto[];
+  readonly total: number;
+}
+
+export interface WorkflowRunDetailResponse {
+  readonly run: WorkflowRunRowDto;
+  readonly steps: readonly WorkflowRunStepRowDto[];
+}
+
+/* ── Campaigns ───────────────────────────────────────────────────────────── */
+
+export type MessageChannelDto = "EMAIL" | "SMS";
+export type CampaignStatusDto = "DRAFT" | "SCHEDULED" | "SENDING" | "SENT" | "CANCELLED" | "FAILED";
+export type CampaignAudienceDto = "ALL_CUSTOMERS" | "MARKETING_OPT_IN" | "REPEAT_CUSTOMERS";
+export type CampaignVariantDto = "A" | "B";
+
+export interface CampaignTemplateRowDto {
+  readonly id: string;
+  readonly name: string;
+  readonly channel: MessageChannelDto;
+  readonly subject: string | null;
+  readonly bodyText: string;
+  readonly bodyHtml: string | null;
+  readonly version: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CampaignRowDto {
+  readonly id: string;
+  readonly name: string;
+  readonly channel: MessageChannelDto;
+  readonly audience: CampaignAudienceDto;
+  readonly status: CampaignStatusDto;
+  readonly variantA: unknown;
+  readonly variantB: unknown;
+  readonly splitBPercent: number;
+  readonly winnerVariant: string | null;
+  readonly scheduledAt: string | null;
+  readonly sendingStartedAt: string | null;
+  readonly sentAt: string | null;
+  readonly cancelledAt: string | null;
+  readonly recipientCount: number;
+  readonly sentCount: number;
+  readonly failedCount: number;
+  readonly skippedCount: number;
+  readonly lastError: string | null;
+  readonly createdByUserId: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CampaignVariantStats {
+  readonly variant: CampaignVariantDto;
+  readonly sent: number;
+  readonly uniqueOpens: number;
+  readonly uniqueClicks: number;
+  readonly openRate: number | null;
+  readonly clickRate: number | null;
+}
+
+export interface CampaignStatsResponse {
+  readonly recipients: {
+    readonly pending: number;
+    readonly sent: number;
+    readonly failed: number;
+    readonly skipped: number;
+  };
+  readonly variants: readonly CampaignVariantStats[];
+  readonly unsubscribes: number;
+  readonly recentEvents: ReadonlyArray<{
+    readonly id: string;
+    readonly kind: string;
+    readonly url: string | null;
+    readonly createdAt: string;
+  }>;
+}
+
+export interface SuppressionRowDto {
+  readonly id: string;
+  readonly destination: string;
+  readonly reason: string;
+  readonly channel: MessageChannelDto;
+  readonly createdAt: string;
+}
+
+export interface SuppressionsResponse {
+  readonly rows: readonly SuppressionRowDto[];
+  readonly total: number;
+}
+
+/* ── Exports ─────────────────────────────────────────────────────────────── */
+
+export type ExportKindDto = "AUDIT_LOGS" | "CUSTOMERS" | "ORDERS" | "PRODUCTS" | "RECOMMENDATIONS";
+export type ExportFormatDto = "CSV" | "XLSX" | "PDF";
+export type ExportStatusDto = "QUEUED" | "RUNNING" | "READY" | "FAILED";
+
+export interface ExportRowDto {
+  readonly id: string;
+  readonly requestedByUserId: string | null;
+  readonly kind: ExportKindDto;
+  readonly format: ExportFormatDto;
+  readonly status: ExportStatusDto;
+  readonly params: unknown;
+  readonly fileName: string | null;
+  readonly rowCount: number | null;
+  readonly sizeBytes: number | null;
+  readonly error: string | null;
+  readonly expiresAt: string | null;
+  readonly completedAt: string | null;
+  readonly createdAt: string;
+}
+
+export interface ExportsResponse {
+  readonly rows: readonly ExportRowDto[];
+  readonly total: number;
+}
+
+/* ── Support tickets (merchant side) ─────────────────────────────────────── */
+
+export type SupportTicketCategoryDto = "BUG" | "BILLING" | "DATA" | "FEATURE" | "OTHER";
+export type SupportTicketPriorityDto = "LOW" | "NORMAL" | "HIGH" | "URGENT";
+export type SupportTicketStatusDto = "OPEN" | "AWAITING_MERCHANT" | "AWAITING_OPERATOR" | "RESOLVED" | "CLOSED";
+export type TicketAuthorKindDto = "MERCHANT" | "OPERATOR";
+
+export interface SupportTicketRowDto {
+  readonly id: string;
+  readonly openedByUserId: string | null;
+  readonly subject: string;
+  readonly category: SupportTicketCategoryDto;
+  readonly priority: SupportTicketPriorityDto;
+  readonly status: SupportTicketStatusDto;
+  readonly messageCount: number;
+  readonly lastMessageAt: string | null;
+  readonly assignedOperator: string | null;
+  readonly operatorAttention: boolean;
+  readonly resolvedAt: string | null;
+  readonly closedAt: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface SupportTicketMessageDto {
+  readonly id: string;
+  readonly authorKind: TicketAuthorKindDto;
+  readonly authorUserId: string | null;
+  readonly authorOperator: string | null;
+  readonly authorEmail: string | null;
+  readonly body: string;
+  readonly createdAt: string;
+}
+
+export interface SupportTicketsResponse {
+  readonly rows: readonly SupportTicketRowDto[];
+  readonly total: number;
+}
+
+export interface SupportTicketThreadResponse {
+  readonly ticket: SupportTicketRowDto;
+  readonly messages: readonly SupportTicketMessageDto[];
+}
+
+export interface SupportTicketReplyResponse {
+  readonly ticket: SupportTicketRowDto;
+  readonly message: SupportTicketMessageDto;
+}
+
+/* ── M6 platform-admin surface (key + step-up session, cross-tenant) ─────── */
+
+export interface AdminSessionResponse {
+  readonly token: string;
+  readonly expiresAt: string;
+  readonly operatorId: string;
+}
+
+export interface AdminTicketRowDto extends SupportTicketRowDto {
+  readonly shopDomain: string;
+  readonly storeName: string;
+  readonly openerEmail: string | null;
+}
+
+export interface AdminTicketsResponse {
+  readonly rows: readonly AdminTicketRowDto[];
+  readonly total: number;
+}
+
+export interface AdminTicketThreadResponse {
+  readonly ticket: AdminTicketRowDto;
+  readonly messages: readonly SupportTicketMessageDto[];
+}
+
+export interface AdminTicketReplyResponse {
+  readonly ticket: AdminTicketRowDto;
+  readonly messageId: string;
+}
+
+export type AccessOverrideKindDto = "COMP_ACCESS" | "PAUSED_EXTENSION" | "CHARGE_FAILURE_GRACE";
+
+export interface AccessOverrideRowDto {
+  readonly id: string;
+  readonly storeId: string;
+  readonly kind: AccessOverrideKindDto;
+  readonly accessUntil: string;
+  readonly reason: string;
+  readonly grantedBy: string;
+  readonly revokedAt: string | null;
+  readonly revokedBy: string | null;
+  readonly revokeReason: string | null;
+  readonly createdAt: string;
+}
+
+export interface AdminActionRowDto {
+  readonly id: string;
+  readonly storeId: string | null;
+  readonly operatorId: string;
+  readonly action: string;
+  readonly targetType: string;
+  readonly targetId: string;
+  readonly payloadHash: string;
+  readonly ip: string | null;
+  readonly createdAt: string;
+}
+
+/** Subscription row returned by POST /admin/merchants/:id/trial-extension (mirror of billing SubscriptionRow). */
+export interface AdminTrialExtensionResponse {
+  readonly id: string;
+  readonly storeId: string;
+  readonly planId: string;
+  readonly status: string;
+  readonly shopifyChargeId: string | null;
+  readonly billingInterval: string | null;
+  readonly trialEndsAt: string | null;
+  readonly currentPeriodStart: string | null;
+  readonly currentPeriodEnd: string | null;
+  readonly graceEndsAt: string | null;
+  readonly cancelledAt: string | null;
+}

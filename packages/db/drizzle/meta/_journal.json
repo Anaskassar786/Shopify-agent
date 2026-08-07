@@ -50,6 +50,13 @@
       "when": 1786003969116,
       "tag": "0006_m5_billing_growth",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786031789294,
+      "tag": "0007_m6_automation_campaigns",
+      "breakpoints": true
     }
   ]
 }

@@ -4,6 +4,7 @@ import {
   ShopifyNetworkError,
   shopifyGraphql,
   shopifyPostJson,
+  shopifyPutJson,
 } from "./http-client";
 
 /**
@@ -70,6 +71,30 @@ describe("shopifyPostJson", () => {
     await expect(
       shopifyPostJson("https://x", {}, {}, { timeoutMs: 20, maxRetries: 0 }),
     ).rejects.toBeInstanceOf(ShopifyNetworkError);
+  });
+});
+
+describe("shopifyPutJson", () => {
+  it("issues a JSON PUT and returns the parsed body (M6 workflow writes)", async () => {
+    const captured: { url?: string | undefined; init?: RequestInit | undefined } = {};
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => {
+      captured.url = String(url);
+      captured.init = init;
+      return json({ customer: { id: 7 } });
+    }) as unknown as typeof fetch);
+    await expect(
+      shopifyPutJson("https://shop.example/admin/api/2025-10/customers/7.json", { customer: { id: 7 } }, { "X-Shopify-Access-Token": "t" }),
+    ).resolves.toEqual({ customer: { id: 7 } });
+    expect(captured.url).toBe("https://shop.example/admin/api/2025-10/customers/7.json");
+    expect(captured.init?.method).toBe("PUT");
+    expect(captured.init?.headers).toMatchObject({ "X-Shopify-Access-Token": "t", "Content-Type": "application/json" });
+  });
+
+  it("fails immediately on 4xx like POST (no retry storms)", async () => {
+    const fetchMock = vi.fn(async () => json({ errors: "bad" }, 404));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    await expect(shopifyPutJson("https://x", {}, {})).rejects.toMatchObject({ name: "ShopifyHttpError", status: 404 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -47,6 +47,11 @@ import { notificationsRouter } from "../modules/notifications/notifications.rout
 import { recommendationsRouter } from "../modules/ai/recommendations.router";
 import { aiRouter } from "../modules/ai/ai.router";
 import { automationRouter } from "../modules/ai/automation.router";
+import { workflowsRouter } from "../modules/automation-center/workflows.router";
+import { campaignsRouter } from "../modules/automation-center/campaigns.router";
+import { exportsRouter } from "../modules/automation-center/exports.router";
+import { supportRouter } from "../modules/automation-center/support.router";
+import { trackingRouter } from "../modules/automation-center/tracking.router";
 import { searchRouter } from "../modules/search/search.router";
 import {
   customersRouter,
@@ -69,6 +74,8 @@ export const APP_URL = "https://app.profit.test";
 export const ACCESS_SECRET = "integration-access-secret";
 /** M5: the harness admin panel key — tests authenticate with this exact value. */
 export const PLATFORM_ADMIN_KEY = "test-platform-admin-key";
+/** M6: deterministic tracking HMAC key shared by router + assertions. */
+export const TRACKING_SECRET = "test-tracking-secret-0123456789abcdef";
 
 export interface TestEnvironment {
   readonly app: Express;
@@ -249,7 +256,13 @@ export async function buildTestEnvironment(): Promise<TestEnvironment> {
           shopifyApiKey: API_KEY,
         }),
         engagement: engagementRouter({ db, jwt }),
-        admin: adminRouter({ db, platformAdminKey: PLATFORM_ADMIN_KEY, audit }),
+        admin: adminRouter({ db, platformAdminKey: PLATFORM_ADMIN_KEY, audit, queue, persistence }),
+        // M6 Automation Center plane — same wiring parity as production.
+        workflows: workflowsRouter({ db, jwt, audit, queue, persistence, logger }),
+        campaigns: campaignsRouter({ db, jwt, audit, queue, persistence, logger }),
+        exports: exportsRouter({ db, jwt, audit, queue, persistence, logger }),
+        support: supportRouter({ db, jwt, audit }),
+        tracking: trackingRouter({ db, logger, trackingSecret: TRACKING_SECRET }),
       },
     },
   });

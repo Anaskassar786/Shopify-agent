@@ -116,7 +116,7 @@ export const engagementEvents = pgTable(
     uniqueIndex("engagement_events_milestone_unique")
       .on(table.storeId, table.kind)
       .where(
-        sql`kind IN ('STORE_CONNECTED','FIRST_SYNC_COMPLETED','FIRST_AI_RUN_COMPLETED','FIRST_AI_INSIGHT_VIEWED','FIRST_RECOMMENDATION_APPROVED','FIRST_AUTOMATION_ENABLED','PAID_SUBSCRIPTION_STARTED')`,
+        sql`kind IN ('STORE_CONNECTED','FIRST_SYNC_COMPLETED','FIRST_AI_RUN_COMPLETED','FIRST_AI_INSIGHT_VIEWED','FIRST_RECOMMENDATION_APPROVED','FIRST_AUTOMATION_ENABLED','PAID_SUBSCRIPTION_STARTED','FIRST_WORKFLOW_ACTIVATED','FIRST_CAMPAIGN_SENT')`,
       ),
     index("engagement_events_store_created_idx").on(table.storeId, table.createdAt),
     index("engagement_events_kind_created_idx").on(table.kind, table.createdAt),

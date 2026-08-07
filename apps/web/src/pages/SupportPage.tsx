@@ -2,6 +2,8 @@ import { useState, type ReactNode } from "react";
 import { Bug, ChevronRight, LifeBuoy, Mail, ScrollText } from "lucide-react";
 import { Card, CardBody, CardHeader } from "@profit/ui";
 import { PageHeader } from "../components/PageHeader";
+import { useAuth } from "../lib/auth-context";
+import { TicketsWorkspace } from "./support/TicketsWorkspace";
 
 /**
  * Real support surface: a direct mail channel (with store + error id context),
@@ -57,12 +59,14 @@ function FaqItem({ faq }: { readonly faq: { q: string; a: string } }): ReactNode
 }
 
 export function SupportPage(): ReactNode {
+  const { hasPermission } = useAuth();
   return (
-    <div>
+    <div className="flex flex-col gap-4">
       <PageHeader
         title="Support"
         subtitle="Answers about this build, and a direct line to the team when those are not enough."
       />
+      {hasPermission("support:read") && <TicketsWorkspace />}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="flex flex-col gap-4">
           <Card>

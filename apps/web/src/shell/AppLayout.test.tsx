@@ -42,16 +42,18 @@ describe("AppLayout", () => {
     for (const label of [
       "Dashboard", "AI Command Center", "Recommendations", "Customers", "Products", "Orders",
       "Inventory", "Automation", "Analytics", "Campaigns", "Notifications", "Audit Logs",
-      "Billing", "Settings", "Support",
+      "Exports", "Billing", "Settings", "Support",
     ]) {
       expect(screen.getByRole("link", { name: new RegExp(label) })).toBeInTheDocument();
     }
     for (const group of ["Overview", "Intelligence", "Catalog", "System"]) {
       expect(screen.getAllByText(group).length).toBeGreaterThan(0);
     }
-    // Roadmap chips are honest milestone markers (campaigns only after M4 shipped).
+    // M6 promoted the last roadmap surface — every section is live now, so
+    // no milestone chips render anywhere in the sidebar.
     expect(screen.queryByText("M4")).not.toBeInTheDocument();
-    expect(screen.getAllByText("M6").length).toBe(1);
+    expect(screen.queryByText("M5")).not.toBeInTheDocument();
+    expect(screen.queryByText("M6")).not.toBeInTheDocument();
   });
 
   it("filters the sidebar to the viewer permission set", async () => {

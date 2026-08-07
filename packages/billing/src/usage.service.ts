@@ -2,16 +2,28 @@ import {
   actionExecutions,
   aiCallLogs,
   and,
+  campaigns,
   eq,
   gte,
   lt,
+  messageEvents,
   sql,
   stores,
   subscriptions,
   usageRecords,
+  workflowRuns,
+  workflowRunSteps,
 } from "@profit/db";
 import type { ProfitDb } from "@profit/db";
-import { ActionType, AiCallStatus, UsageMeter } from "@profit/types";
+import {
+  ActionType,
+  AiCallStatus,
+  MessageChannel,
+  MessageEventKind,
+  UsageMeter,
+  WorkflowNodeKind,
+  WorkflowStepStatus,
+} from "@profit/types";
 
 /**
  * UsageRollupService — convergent daily rollups into `usage_records` (the
@@ -70,8 +82,11 @@ export class UsageRollupService {
         bucketsWritten += await this.writeBucket(store.id, UsageMeter.AiCalls, row.day, periodStart, row.used, row.cost);
       }
 
-      // Emails sent per day (per-recipient tool checkpoints)
-      const emailRows = await this.db
+      // Emails sent per day — ALL sources summed into one convergent bucket:
+      // M4 recovery-email tool checkpoints + M6 campaign SENT events + M6
+      // workflow SEND_EMAIL steps. Sources can never double-count (disjoint
+      // ledgers), and the daily bucket is rewritten whole from the sum.
+      const m4EmailRows = await this.db
         .select({
           day: sql<string>`to_char(${actionExecutions.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
           used: sql<number>`coalesce(sum(case when jsonb_typeof(${actionExecutions.toolRef} -> 'sentTo') = 'array' then jsonb_array_length(${actionExecutions.toolRef} -> 'sentTo') else 0 end), 0)::int`,
@@ -86,11 +101,63 @@ export class UsageRollupService {
           ),
         )
         .groupBy(sql`to_char(${actionExecutions.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`);
-      for (const row of emailRows) {
-        bucketsWritten += await this.writeBucket(store.id, UsageMeter.EmailsSent, row.day, periodStart, row.used, 0);
+      const campaignMessageRows = await this.db
+        .select({
+          channel: campaigns.channel,
+          day: sql<string>`to_char(${messageEvents.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+          used: sql<number>`count(*)::int`,
+        })
+        .from(messageEvents)
+        .innerJoin(campaigns, eq(messageEvents.campaignId, campaigns.id))
+        .where(
+          and(
+            eq(messageEvents.storeId, store.id),
+            eq(messageEvents.kind, MessageEventKind.Sent),
+            gte(messageEvents.createdAt, from),
+            lt(messageEvents.createdAt, to),
+          ),
+        )
+        .groupBy(campaigns.channel, sql`to_char(${messageEvents.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`);
+      // Group by the plain column (never a CASE with params: $1/$2 make the
+      // GROUP BY expression structurally different and PG rejects the query).
+      const workflowSendRows = await this.db
+        .select({
+          nodeKind: workflowRunSteps.nodeKind,
+          day: sql<string>`to_char(${workflowRunSteps.completedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+          used: sql<number>`count(*)::int`,
+        })
+        .from(workflowRunSteps)
+        .where(
+          and(
+            eq(workflowRunSteps.storeId, store.id),
+            sql`${workflowRunSteps.nodeKind} IN (${WorkflowNodeKind.SendEmail}, ${WorkflowNodeKind.SendSms})`,
+            eq(workflowRunSteps.status, WorkflowStepStatus.Completed),
+            gte(workflowRunSteps.completedAt, from),
+            lt(workflowRunSteps.completedAt, to),
+          ),
+        )
+        .groupBy(workflowRunSteps.nodeKind, sql`to_char(${workflowRunSteps.completedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`);
+
+      const emailByDay = new Map<string, number>();
+      const smsByDay = new Map<string, number>();
+      const bump = (map: Map<string, number>, day: string, used: number): void => {
+        map.set(day, (map.get(day) ?? 0) + used);
+      };
+      for (const row of m4EmailRows) bump(emailByDay, row.day, row.used);
+      for (const row of campaignMessageRows) {
+        bump(row.channel === MessageChannel.Sms ? smsByDay : emailByDay, row.day, row.used);
+      }
+      for (const row of workflowSendRows) {
+        bump(row.nodeKind === WorkflowNodeKind.SendSms ? smsByDay : emailByDay, row.day, row.used);
+      }
+      for (const [day, used] of emailByDay) {
+        bucketsWritten += await this.writeBucket(store.id, UsageMeter.EmailsSent, day, periodStart, used, 0);
+      }
+      for (const [day, used] of smsByDay) {
+        bucketsWritten += await this.writeBucket(store.id, UsageMeter.SmsSent, day, periodStart, used, 0);
       }
 
-      // Automation runs per day (started executions)
+      // Automation runs per day (M4 action executions + M6 workflow runs)
       const automationRows = await this.db
         .select({
           day: sql<string>`to_char(${actionExecutions.startedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
@@ -106,8 +173,25 @@ export class UsageRollupService {
           ),
         )
         .groupBy(sql`to_char(${actionExecutions.startedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`);
-      for (const row of automationRows) {
-        bucketsWritten += await this.writeBucket(store.id, UsageMeter.AutomationRuns, row.day, periodStart, row.used, 0);
+      const workflowRunRows = await this.db
+        .select({
+          day: sql<string>`to_char(${workflowRuns.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
+          used: sql<number>`count(*)::int`,
+        })
+        .from(workflowRuns)
+        .where(
+          and(
+            eq(workflowRuns.storeId, store.id),
+            gte(workflowRuns.createdAt, from),
+            lt(workflowRuns.createdAt, to),
+          ),
+        )
+        .groupBy(sql`to_char(${workflowRuns.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`);
+      const automationByDay = new Map<string, number>();
+      for (const row of automationRows) bump(automationByDay, row.day, row.used);
+      for (const row of workflowRunRows) bump(automationByDay, row.day, row.used);
+      for (const [day, used] of automationByDay) {
+        bucketsWritten += await this.writeBucket(store.id, UsageMeter.AutomationRuns, day, periodStart, used, 0);
       }
     }
     return { stores: storeRows.length, bucketsWritten };

@@ -63,7 +63,9 @@ async function fetchWithTimeout(
   }
 }
 
-export async function shopifyPostJson<TResponse>(
+/** POST/PUT share the exact retry/timeout policy — the method is the only delta. */
+async function shopifySendJson<TResponse>(
+  method: "POST" | "PUT",
   url: string,
   body: unknown,
   headers: Record<string, string>,
@@ -74,7 +76,7 @@ export async function shopifyPostJson<TResponse>(
   const baseDelayMs = options.baseDelayMs ?? DEFAULT_BASE_DELAY_MS;
 
   const init: RequestInit = {
-    method: "POST",
+    method,
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
@@ -122,6 +124,25 @@ export async function shopifyPostJson<TResponse>(
     );
   }
   throw lastNetworkError ?? new ShopifyNetworkError("shopify request failed without response");
+}
+
+export async function shopifyPostJson<TResponse>(
+  url: string,
+  body: unknown,
+  headers: Record<string, string>,
+  options: ShopifyHttpOptions = {},
+): Promise<TResponse> {
+  return shopifySendJson<TResponse>("POST", url, body, headers, options);
+}
+
+/** M6 workflow actions (customer tag merge) write via PUT — same policy as POST. */
+export async function shopifyPutJson<TResponse>(
+  url: string,
+  body: unknown,
+  headers: Record<string, string>,
+  options: ShopifyHttpOptions = {},
+): Promise<TResponse> {
+  return shopifySendJson<TResponse>("PUT", url, body, headers, options);
 }
 
 /**

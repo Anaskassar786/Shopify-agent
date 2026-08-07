@@ -238,6 +238,8 @@ describe("AutomationPage", () => {
         "/api/v1/automation/overview": () => automationOverviewResponse(),
         "/api/v1/store": () => storeResponse(),
         "/api/v1/sync/status": () => syncStatusResponse(),
+        // M6 hub boots on the Workflows tab; the guardrails panel is tab two.
+        "/api/v1/workflows": () => [],
       },
       getWithMeta: {},
       patch: { "/api/v1/store/settings": () => ({ ok: true }) },
@@ -245,9 +247,15 @@ describe("AutomationPage", () => {
     };
   }
 
+  /** The M4 policy UI lives under the second tab of the M6 Automation hub. */
+  async function openGuardrailsTab(): Promise<void> {
+    fireEvent.click(await screen.findByRole("tab", { name: /ai guardrails/i }));
+  }
+
   it("renders the policy form with live guardrail values and the ledger", async () => {
     renderApp(<AutomationPage />, { route: "/automation", handlers: automationHandlers() });
     expect(await screen.findByRole("heading", { name: "Automation" })).toBeInTheDocument();
+    await openGuardrailsTab();
     expect(await screen.findByText("Current guardrails")).toBeInTheDocument();
     const mode = screen.getByLabelText(/autonomy mode/i);
     await waitFor(() => expect(mode).toHaveValue("MANUAL"));
@@ -262,6 +270,7 @@ describe("AutomationPage", () => {
 
   it("edits and saves the policy through PATCH /store/settings", async () => {
     const { stub } = renderApp(<AutomationPage />, { route: "/automation", handlers: automationHandlers() });
+    await openGuardrailsTab();
     const delay = await screen.findByLabelText(/send after \(hours idle\)/i);
     await waitFor(() => expect(delay).toHaveValue(6));
     fireEvent.change(screen.getByLabelText(/autonomy mode/i), { target: { value: "SEMI_AUTOMATIC" } });
@@ -287,6 +296,7 @@ describe("AutomationPage", () => {
       user: { ...TEST_USER, role: "VIEWER" },
       handlers: automationHandlers(),
     });
+    await openGuardrailsTab();
     await screen.findByText("Current guardrails");
     expect(screen.queryByLabelText(/autonomy mode/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save automation policy" })).not.toBeInTheDocument();

@@ -44,6 +44,17 @@ export interface ApiClientOptions {
   readonly fetchImpl?: typeof fetch;
 }
 
+function networkError(): ApiError {
+  return new ApiError({
+    status: 0,
+    code: "NETWORK_ERROR",
+    message: "The server could not be reached. Check your connection and retry.",
+    requestId: null,
+    field: null,
+    details: null,
+  });
+}
+
 function isEnvelope(value: unknown): value is ApiSuccessResponse<unknown> | ApiErrorResponse {
   return (
     typeof value === "object" &&
@@ -100,9 +111,70 @@ export class ApiClient {
     return this.request<TData>("PATCH", path, body, true).then((r) => r.data);
   }
 
+  /** PUT (M6 workflow versioning — full-resource replace semantics). */
+  put<TData>(path: string, body?: unknown): Promise<TData> {
+    return this.request<TData>("PUT", path, body, true).then((r) => r.data);
+  }
+
   /** Public endpoints (auth/session bootstrap) — no token attached. */
   postPublic<TData>(path: string, body?: unknown): Promise<TData> {
     return this.request<TData>("POST", path, body, false).then((r) => r.data);
+  }
+
+  /**
+   * Binary GET (M6 export downloads): same auth + refresh contract as JSON
+   * requests, but returns the raw bytes plus the server-provided file name
+   * (content-disposition). The UI turns this into an object-URL download.
+   */
+  async download(path: string): Promise<{ readonly blob: Blob; readonly fileName: string | null }> {
+    const response = await this.sendWithRefresh(async (active) => {
+      const headers: Record<string, string> = { Accept: "*/*" };
+      if (active !== null) headers["Authorization"] = `Bearer ${active}`;
+      return this.fetchImpl(`${this.baseUrl}${path}`, { method: "GET", headers });
+    }, true);
+    if (!response.ok) {
+      const parsed: unknown = await response.json().catch(() => null);
+      const first = isEnvelope(parsed) && !parsed.success ? parsed.errors[0] : undefined;
+      throw new ApiError({
+        status: response.status,
+        code: first?.code ?? "DOWNLOAD_FAILED",
+        message: first?.message ?? `Download failed (${String(response.status)}).`,
+        requestId: isEnvelope(parsed) ? (parsed.requestId ?? null) : null,
+        field: null,
+        details: null,
+      });
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const match = /filename="?([^";]+)"?/.exec(disposition);
+    return { blob, fileName: match?.[1] ?? null };
+  }
+
+  /**
+   * Transport primitive shared by JSON + binary calls: one attempt, a typed
+   * NETWORK_ERROR on transport failure, and exactly one refresh-retry on 401.
+   */
+  private async sendWithRefresh(
+    attempt: (token: string | null) => Promise<Response>,
+    authenticated: boolean,
+  ): Promise<Response> {
+    let response: Response;
+    try {
+      response = await attempt(this.getAccessToken());
+    } catch {
+      throw networkError();
+    }
+    if (response.status === 401 && authenticated) {
+      const refreshed = await this.singleRefresh();
+      if (refreshed !== null) {
+        try {
+          response = await attempt(refreshed);
+        } catch {
+          throw networkError();
+        }
+      }
+    }
+    return response;
   }
 
   private singleRefresh(): Promise<string | null> {
@@ -128,37 +200,7 @@ export class ApiClient {
       return this.fetchImpl(`${this.baseUrl}${path}`, init);
     };
 
-    let response: Response;
-    try {
-      response = await attempt(this.getAccessToken());
-    } catch {
-      throw new ApiError({
-        status: 0,
-        code: "NETWORK_ERROR",
-        message: "The server could not be reached. Check your connection and retry.",
-        requestId: null,
-        field: null,
-        details: null,
-      });
-    }
-
-    if (response.status === 401 && authenticated) {
-      const refreshed = await this.singleRefresh();
-      if (refreshed !== null) {
-        try {
-          response = await attempt(refreshed);
-        } catch {
-          throw new ApiError({
-            status: 0,
-            code: "NETWORK_ERROR",
-            message: "The server could not be reached. Check your connection and retry.",
-            requestId: null,
-            field: null,
-            details: null,
-          });
-        }
-      }
-    }
+    const response = await this.sendWithRefresh(attempt, authenticated);
 
     const parsed: unknown = await response.json().catch(() => null);
     if (isEnvelope(parsed)) {

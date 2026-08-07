@@ -30,6 +30,16 @@ import {
   BillingTrialTickJob,
   BillingUsageRollupTickJob,
 } from "@profit/billing";
+import {
+  AutomationTickJob,
+  CampaignDispatchJob,
+  CampaignSendBatchJob,
+  ExportGenerateJob,
+  SupportNotifyJob,
+  TwilioSmsSender,
+  WorkflowRunResumeJob,
+  WorkflowRunStartJob,
+} from "@profit/automation";
 import { ModelTier } from "@profit/types";
 import { loadWorkerEnv, type WorkerEnv } from "./config/env";
 import type { WorkerDeps } from "./handlers/deps";
@@ -44,6 +54,15 @@ import {
   billingTrialTickHandler,
   billingUsageRollupTickHandler,
 } from "./handlers/billing.handlers";
+import {
+  automationTickHandler,
+  campaignDispatchHandler,
+  campaignSendBatchHandler,
+  exportGenerateHandler,
+  supportNotifyHandler,
+  workflowRunResumeHandler,
+  workflowRunStartHandler,
+} from "./handlers/automation.handlers";
 import { startHealthServer } from "./health/server";
 
 export interface RunningWorker {
@@ -79,6 +98,14 @@ export function registerWorkerJobs(deps: WorkerDeps): void {
   deps.queue.register(BillingUsageRollupTickJob, billingUsageRollupTickHandler(deps));
   deps.queue.register(BillingReconcileTickJob, billingReconcileTickHandler(deps));
   deps.queue.register(BillingChurnScanTickJob, billingChurnScanTickHandler(deps));
+  // M6 automation center plane
+  deps.queue.register(AutomationTickJob, automationTickHandler(deps));
+  deps.queue.register(WorkflowRunStartJob, workflowRunStartHandler(deps));
+  deps.queue.register(WorkflowRunResumeJob, workflowRunResumeHandler(deps));
+  deps.queue.register(CampaignDispatchJob, campaignDispatchHandler(deps));
+  deps.queue.register(CampaignSendBatchJob, campaignSendBatchHandler(deps));
+  deps.queue.register(ExportGenerateJob, exportGenerateHandler(deps));
+  deps.queue.register(SupportNotifyJob, supportNotifyHandler(deps));
 }
 
 /** Repeatable schedules (P3 scheduler). BullMQ dedupes by scheduleId; memory driver mirrors semantics. */
@@ -139,6 +166,14 @@ export async function registerWorkerSchedules(deps: WorkerDeps): Promise<void> {
     everyMs: deps.env.CHURN_SCAN_INTERVAL_MS,
     payload: {},
   });
+  // M6: one heartbeat drives workflow schedules, delay resumes, campaign
+  // dispatches and export expiry — leaf fan-out carries its own dedupe ids.
+  await deps.queue.upsertSchedule({
+    scheduleId: "automation.tick",
+    definition: AutomationTickJob,
+    everyMs: deps.env.AUTOMATION_TICK_INTERVAL_MS,
+    payload: {},
+  });
 }
 
 export async function startWorker(): Promise<RunningWorker> {
@@ -191,9 +226,31 @@ export async function startWorker(): Promise<RunningWorker> {
   if (aiProvider === null) logger.warn("GEMINI_API_KEY missing — AI runs will land PROVIDER_UNAVAILABLE");
   if (emailSender === null) logger.warn("SMTP incomplete — email tool will report itself unavailable");
 
+  // M6: SMS channel (Twilio) + tracking link config follow the same failsafe
+  // rule — partial config means "capability unavailable", never "crash".
+  const twilioConfigured =
+    env.SMS_TWILIO_ACCOUNT_SID !== undefined &&
+    env.SMS_TWILIO_AUTH_TOKEN !== undefined &&
+    env.SMS_TWILIO_FROM_NUMBER !== undefined;
+  const smsSender = twilioConfigured
+    ? new TwilioSmsSender({
+        accountSid: env.SMS_TWILIO_ACCOUNT_SID as string,
+        authToken: env.SMS_TWILIO_AUTH_TOKEN as string,
+        fromNumber: env.SMS_TWILIO_FROM_NUMBER as string,
+      })
+    : null;
+  if (smsSender === null) logger.warn("Twilio incomplete — SMS steps/sends will report themselves unavailable");
+  const trackingSecret = env.TRACKING_SIGNING_SECRET ?? null;
+  // Tracking URLs must resolve publicly to the API origin (pixel + redirects).
+  if (trackingSecret === null) logger.warn("TRACKING_SIGNING_SECRET missing — campaign links render untracked");
+  const trackingBaseUrl = env.TRACKING_PUBLIC_BASE_URL ?? env.SHOPIFY_APP_URL ?? "http://localhost:8080";
+
   const deps: WorkerDeps = {
     env, logger, db, queue, persistence, cache, pubsub, encryption,
     aiProvider, emailSender,
+    smsSender,
+    trackingSecret,
+    trackingBaseUrl,
   };
 
   persistence.attach(queue);

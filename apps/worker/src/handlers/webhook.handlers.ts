@@ -1,7 +1,7 @@
 import { eq } from "@profit/db";
 import { stores, webhookLogs } from "@profit/db";
 import { CacheInvalidator } from "@profit/cache";
-import { WebhookStatus } from "@profit/types";
+import { WebhookStatus, WorkflowTriggerKind } from "@profit/types";
 import type { JobHandler } from "@profit/queue";
 import {
   AnalyticsRefreshJob,
@@ -10,7 +10,9 @@ import {
   windowForDates,
   type WebhookProcessPayload,
 } from "@profit/sync";
+import { WorkflowRunStartJob, WorkflowService } from "@profit/automation";
 import { recordWorkerAudit } from "./audit";
+import { buildEventSubject } from "./automation.handlers";
 import type { WorkerDeps } from "./deps";
 
 /**
@@ -99,13 +101,34 @@ export function webhookProcessHandler(deps: WorkerDeps): JobHandler<WebhookProce
         );
       }
 
+      // M6: EVENT-trigger workflows fire off the processed delivery. The
+      // fan-out is idempotent — run rows are unique on triggerEventId
+      // (webhook:{topic}:{deliveryId}) and leaf jobIds equal their
+      // triggerEventId, so redeliveries converge instead of re-firing.
+      const eventWorkflows = await new WorkflowService(deps.db.db).findEventTriggered(logRow.topic);
+      for (const match of eventWorkflows) {
+        const triggerEventId = `webhook:${logRow.topic}:${logRow.shopifyWebhookId}`;
+        await deps.persistence.enqueuePersistent(
+          deps.queue,
+          WorkflowRunStartJob,
+          {
+            storeId: match.storeId,
+            workflowId: match.workflowId,
+            triggerKind: WorkflowTriggerKind.Event,
+            triggerEventId,
+            subject: await buildEventSubject(deps.db.db, match.storeId, logRow.topic, logRow.payload as Record<string, unknown>),
+          },
+          { jobId: `wf-event:${triggerEventId}` },
+        );
+      }
+
       await recordWorkerAudit(deps.db.db, deps.logger, {
         storeId,
         action: "shopify.webhook.processed",
         entityType: "webhook",
         entityId: webhookLogId,
         result: "SUCCESS",
-        metadata: { topic: logRow.topic, analyticsDates: result.analyticsDates },
+        metadata: { topic: logRow.topic, analyticsDates: result.analyticsDates, workflowTriggers: eventWorkflows.length },
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
