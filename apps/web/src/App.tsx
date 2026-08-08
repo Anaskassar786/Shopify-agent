@@ -21,6 +21,8 @@ const ExportsPage = lazy(async () => ({ default: (await import("./pages/ExportsP
 const RecommendationsPage = lazy(async () => ({ default: (await import("./pages/RecommendationsPage")).RecommendationsPage }));
 const RecommendationDetailPage = lazy(async () => ({ default: (await import("./pages/RecommendationDetailPage")).RecommendationDetailPage }));
 const AutomationPage = lazy(async () => ({ default: (await import("./pages/AutomationPage")).AutomationPage }));
+const CopilotPage = lazy(async () => ({ default: (await import("./pages/CopilotPage")).CopilotPage }));
+const ReportsPage = lazy(async () => ({ default: (await import("./pages/ReportsPage")).ReportsPage }));
 const ProductsPage = lazy(async () => ({ default: (await import("./pages/ProductsPage")).ProductsPage }));
 const ProductDetailPage = lazy(async () => ({ default: (await import("./pages/ProductDetailPage")).ProductDetailPage }));
 const CustomersPage = lazy(async () => ({ default: (await import("./pages/CustomersPage")).CustomersPage }));
@@ -63,7 +65,9 @@ export default function App(): ReactNode {
             <Route path="/recommendations" element={<Guarded permission="recommendations:read"><RecommendationsPage /></Guarded>} />
             <Route path="/recommendations/:id" element={<Guarded permission="recommendations:read"><RecommendationDetailPage /></Guarded>} />
             <Route path="/automation" element={<Guarded permission="automation:read"><AutomationPage /></Guarded>} />
+            <Route path="/copilot" element={<Guarded permission="copilot:read"><CopilotPage /></Guarded>} />
             <Route path="/campaigns" element={<Guarded permission="campaigns:read"><CampaignsPage /></Guarded>} />
+            <Route path="/reports" element={<Guarded permission="reports:read"><ReportsPage /></Guarded>} />
             <Route path="/products" element={<Guarded permission="products:read"><ProductsPage /></Guarded>} />
             <Route path="/products/:id" element={<Guarded permission="products:read"><ProductDetailPage /></Guarded>} />
             <Route path="/customers" element={<Guarded permission="customers:read"><CustomersPage /></Guarded>} />

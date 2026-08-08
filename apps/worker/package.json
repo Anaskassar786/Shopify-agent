@@ -20,6 +20,7 @@
     "@profit/logger": "workspace:*",
     "@profit/notifications": "workspace:*",
     "@profit/queue": "workspace:*",
+    "@profit/reporting": "workspace:*",
     "@profit/shopify": "workspace:*",
     "@profit/sync": "workspace:*",
     "@profit/types": "workspace:*",

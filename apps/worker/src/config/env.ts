@@ -44,6 +44,8 @@ const schema = z.object({
   EMAIL_FROM: z.string().email().default("noreply@profittool.ai"),
   /** M6 automation center — one TICK scans the whole plane, fans out leaf jobs. */
   AUTOMATION_TICK_INTERVAL_MS: z.coerce.number().int().min(5_000).max(3_600_000).default(60_000),
+  /** M8 enterprise reporting — due-cadence convergence tick (6h default). */
+  REPORTS_TICK_INTERVAL_MS: z.coerce.number().int().min(300_000).default(21_600_000),
   CAMPAIGN_SEND_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(50),
   CAMPAIGN_SEND_THROTTLE_MS: z.coerce.number().int().min(0).max(120_000).default(2_000),
   /** M6 SMS channel — absent trio = sms sender unavailable (failsafe, like SMTP). */

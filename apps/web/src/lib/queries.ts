@@ -27,6 +27,7 @@ import type {
   ProductRow,
   RecommendationDetail,
   RecommendationRow,
+  ReportPreferencesDto,
   StoreResponse,
   SubscriptionResponse,
   SyncHistoryRow,
@@ -89,6 +90,8 @@ export interface SettingsPatch {
       readonly maxEstimatedRevenueCents?: number;
     };
   };
+  /** M8 report schedule/delivery (ADR 34) — kinds merge per-key server-side. */
+  readonly reportPreferences?: ReportPreferencesDto;
 }
 
 export function usePatchSettingsMutation(): UseMutationResult<unknown, ApiError, SettingsPatch> {

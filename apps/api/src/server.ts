@@ -6,7 +6,8 @@ import { createCache, createPubSub, createStoreCache } from "@profit/cache";
 import { legalRouter } from "./modules/legal/legal.router";
 import { NotificationService } from "@profit/notifications";
 import { createDbClient, probeDbConnection, type DbClient } from "@profit/db";
-import { EngagementEventKind, Environment } from "@profit/types";
+import { GeminiProvider, SmtpEmailSender } from "@profit/ai";
+import { EngagementEventKind, Environment, ModelTier } from "@profit/types";
 import { createJobQueue, JobPersistence } from "@profit/queue";
 import {
   resolveStoreAdminContext,
@@ -42,6 +43,8 @@ import { adminRouter } from "./modules/admin/admin.router";
 import { notificationsRouter } from "./modules/notifications/notifications.router";
 import { recommendationsRouter } from "./modules/ai/recommendations.router";
 import { aiRouter } from "./modules/ai/ai.router";
+import { copilotRouter } from "./modules/copilot/copilot.router";
+import { reportsRouter } from "./modules/reports/reports.router";
 import { automationRouter } from "./modules/ai/automation.router";
 import { searchRouter } from "./modules/search/search.router";
 import { workflowsRouter } from "./modules/automation-center/workflows.router";
@@ -322,6 +325,36 @@ function buildRouters(
     }
   };
 
+  /**
+   * M8 failsafe construction (same rule as the worker): the AI provider and
+   * SMTP sender exist ONLY when fully configured. Null is the honest
+   * "capability unavailable" state — copilot answers stay deterministic and
+   * report delivery reports the typed outcome, never a crash.
+   */
+  const aiProvider =
+    env.GEMINI_API_KEY !== undefined
+      ? new GeminiProvider({
+          apiKey: env.GEMINI_API_KEY,
+          models: {
+            [ModelTier.Triage]: env.AI_DEFAULT_GEMINI_MODEL,
+            [ModelTier.Standard]: env.AI_DEFAULT_GEMINI_MODEL,
+            [ModelTier.Deep]: env.AI_DEFAULT_GEMINI_MODEL,
+          },
+        })
+      : null;
+  const smtpConfigured =
+    env.SMTP_HOST !== undefined && env.SMTP_USER !== undefined && env.SMTP_PASSWORD !== undefined;
+  const emailSender = smtpConfigured
+    ? new SmtpEmailSender({
+        host: env.SMTP_HOST as string,
+        port: env.SMTP_PORT,
+        user: env.SMTP_USER as string,
+        password: env.SMTP_PASSWORD as string,
+        fromAddress: env.EMAIL_FROM,
+        fromName: "Profit Tool AI",
+      })
+    : null;
+
   return {
     shopify: shopifyRouter({ oauth, webhooks, logger }),
     legal,
@@ -377,6 +410,16 @@ function buildRouters(
       exports: exportsRouter({ db: db.db, jwt, audit, queue, persistence, logger }),
       support: supportRouter({ db: db.db, jwt, audit }),
       tracking: trackingRouter({ db: db.db, logger, trackingSecret: env.TRACKING_SIGNING_SECRET }),
+      // M8: copilot + reports construct their provider/sender ONLY when fully
+      // configured — null means deterministic-first operation (ADR 32 failsafe).
+      copilot: copilotRouter({ db: db.db, jwt, provider: aiProvider }),
+      reports: reportsRouter({
+        db: db.db,
+        jwt,
+        logger,
+        provider: aiProvider,
+        emailSender,
+      }),
     },
   };
 }
@@ -407,5 +450,7 @@ function stubApiV1(): AppRouters["apiV1"] {
     exports: Router(),
     support: Router(),
     tracking: Router(),
+    copilot: Router(),
+    reports: Router(),
   };
 }

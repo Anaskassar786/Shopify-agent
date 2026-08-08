@@ -26,6 +26,9 @@ export interface ApiV1Routers {
   readonly support: ExpressRouter;
   /** Public tracking endpoints (no session — HMAC token is the authorization). */
   readonly tracking: ExpressRouter;
+  /** M8 Phase 3: copilot Q&A + enterprise report vault. */
+  readonly copilot: ExpressRouter;
+  readonly reports: ExpressRouter;
 }
 
 /**
@@ -36,6 +39,7 @@ export interface ApiV1Routers {
  *   M4: recommendations, ai, automation
  *   M5: billing (charges), engagement (growth telemetry), admin (platform panel)
  *   M6: workflows, campaigns, exports, support, admin writes, tracking (public)
+ *   M8: copilot (merchant Q&A), reports (enterprise period reports)
  * Versioning rule (P2): breaking changes ship under /api/v2; v1 stays stable.
  */
 export function createApiV1Router(modules: ApiV1Routers): ExpressRouter {
@@ -63,5 +67,7 @@ export function createApiV1Router(modules: ApiV1Routers): ExpressRouter {
   router.use("/exports", modules.exports);
   router.use("/support", modules.support);
   router.use("/t", modules.tracking);
+  router.use("/copilot", modules.copilot);
+  router.use("/reports", modules.reports);
   return router;
 }

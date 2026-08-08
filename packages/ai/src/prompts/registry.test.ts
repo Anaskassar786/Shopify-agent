@@ -17,9 +17,13 @@ describe("prompt registry", () => {
     }
   });
 
-  it("run order covers all agents exactly once", () => {
+  it("run order covers all decision agents exactly once (EXECUTIVE never runs firings)", () => {
     expect(new Set(AGENT_RUN_ORDER).size).toBe(AGENT_RUN_ORDER.length);
-    expect([...AGENT_RUN_ORDER].sort()).toEqual(Object.values(AiAgentId).sort());
+    const decisionAgents = Object.values(AiAgentId).filter((id) => id !== AiAgentId.Executive);
+    expect([...AGENT_RUN_ORDER].sort()).toEqual(decisionAgents.sort());
+    // EXECUTIVE phrases prose through the slot bridge only — deliberate exclusion.
+    expect(AGENT_RUN_ORDER).not.toContain(AiAgentId.Executive);
+    expect(AGENT_RUN_ORDER).toContain(AiAgentId.Pricing);
   });
 
   it("user message is JSON-bounded and carries firing refs", () => {

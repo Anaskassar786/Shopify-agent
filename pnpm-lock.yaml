@@ -32,6 +32,9 @@ importers:
       '@profit/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@profit/forecasting':
+        specifier: workspace:*
+        version: link:../../packages/forecasting
       '@profit/logger':
         specifier: workspace:*
         version: link:../../packages/logger
@@ -41,6 +44,9 @@ importers:
       '@profit/queue':
         specifier: workspace:*
         version: link:../../packages/queue
+      '@profit/reporting':
+        specifier: workspace:*
+        version: link:../../packages/reporting
       '@profit/shopify':
         specifier: workspace:*
         version: link:../../packages/shopify
@@ -214,6 +220,9 @@ importers:
       '@profit/queue':
         specifier: workspace:*
         version: link:../../packages/queue
+      '@profit/reporting':
+        specifier: workspace:*
+        version: link:../../packages/reporting
       '@profit/shopify':
         specifier: workspace:*
         version: link:../../packages/shopify
@@ -257,6 +266,9 @@ importers:
       '@profit/db':
         specifier: workspace:*
         version: link:../db
+      '@profit/forecasting':
+        specifier: workspace:*
+        version: link:../forecasting
       '@profit/logger':
         specifier: workspace:*
         version: link:../logger
@@ -437,6 +449,31 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.1)(jsdom@26.1.0)(lightningcss@1.32.0)
 
+  packages/forecasting:
+    dependencies:
+      '@profit/db':
+        specifier: workspace:*
+        version: link:../db
+      '@profit/types':
+        specifier: workspace:*
+        version: link:../types
+    devDependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.2.17
+        version: 0.2.17
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.1
+      '@vitest/coverage-v8':
+        specifier: ^2.1.8
+        version: 2.1.9(vitest@2.1.9(@types/node@22.20.1)(jsdom@26.1.0)(lightningcss@1.32.0))
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(jsdom@26.1.0)(lightningcss@1.32.0)
+
   packages/logger:
     dependencies:
       pino:
@@ -501,6 +538,49 @@ importers:
       bullmq:
         specifier: ^5.34.0
         version: 5.81.3
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.2.17
+        version: 0.2.17
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.1
+      '@vitest/coverage-v8':
+        specifier: ^2.1.8
+        version: 2.1.9(vitest@2.1.9(@types/node@22.20.1)(jsdom@26.1.0)(lightningcss@1.32.0))
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(jsdom@26.1.0)(lightningcss@1.32.0)
+
+  packages/reporting:
+    dependencies:
+      '@profit/ai':
+        specifier: workspace:*
+        version: link:../ai
+      '@profit/automation':
+        specifier: workspace:*
+        version: link:../automation
+      '@profit/db':
+        specifier: workspace:*
+        version: link:../db
+      '@profit/forecasting':
+        specifier: workspace:*
+        version: link:../forecasting
+      '@profit/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@profit/queue':
+        specifier: workspace:*
+        version: link:../queue
+      '@profit/types':
+        specifier: workspace:*
+        version: link:../types
       zod:
         specifier: ^3.24.1
         version: 3.25.76

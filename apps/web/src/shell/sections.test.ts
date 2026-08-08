@@ -5,9 +5,9 @@ import { OWNER_PERMISSIONS, VIEWER_PERMISSIONS } from "../test-support/render";
 const hasAll = (p: string): boolean => (OWNER_PERMISSIONS as readonly string[]).includes(p);
 const hasViewer = (p: string): boolean => (VIEWER_PERMISSIONS as readonly string[]).includes(p);
 
-describe("section registry (P9 surfaces, 16 after M6 Exports)", () => {
-  it("declares the definitive sections in P9 order (M6 added Exports to System)", () => {
-    expect(APP_SECTIONS).toHaveLength(16);
+describe("section registry (P9 surfaces, 18 after M8 Copilot + Reports)", () => {
+  it("declares the definitive sections in P9 order (M8 added Copilot before Automation and Reports after Campaigns)", () => {
+    expect(APP_SECTIONS).toHaveLength(18);
     expect(APP_SECTIONS.map((s) => s.label)).toEqual([
       "Dashboard",
       "AI Command Center",
@@ -16,9 +16,11 @@ describe("section registry (P9 surfaces, 16 after M6 Exports)", () => {
       "Products",
       "Orders",
       "Inventory",
+      "AI Copilot",
       "Automation",
       "Analytics",
       "Campaigns",
+      "Reports",
       "Notifications",
       "Audit Logs",
       "Billing",
@@ -29,15 +31,15 @@ describe("section registry (P9 surfaces, 16 after M6 Exports)", () => {
   });
 
   it("has unique keys and paths", () => {
-    expect(new Set(APP_SECTIONS.map((s) => s.key)).size).toBe(16);
-    expect(new Set(APP_SECTIONS.map((s) => s.path)).size).toBe(16);
+    expect(new Set(APP_SECTIONS.map((s) => s.key)).size).toBe(18);
+    expect(new Set(APP_SECTIONS.map((s) => s.path)).size).toBe(18);
   });
 
   it("every section belongs to a declared group with content", () => {
     for (const group of SECTION_GROUPS) {
       expect(sectionsForGroup(group).length).toBeGreaterThan(0);
     }
-    expect(SECTION_GROUPS.flatMap(sectionsForGroup)).toHaveLength(16);
+    expect(SECTION_GROUPS.flatMap(sectionsForGroup)).toHaveLength(18);
   });
 
   it("roadmap sections declare a milestone and live ones do not", () => {
@@ -60,7 +62,7 @@ describe("section registry (P9 surfaces, 16 after M6 Exports)", () => {
 
   it("visibleSections honors the permission matrix", () => {
     const owner = visibleSections(hasAll);
-    expect(owner).toHaveLength(16);
+    expect(owner).toHaveLength(18);
     const viewer = visibleSections(hasViewer);
     const viewerKeys = viewer.map((s) => s.key);
     // Viewer: dashboard, ai-command-center, recommendations, analytics,
@@ -74,5 +76,8 @@ describe("section registry (P9 surfaces, 16 after M6 Exports)", () => {
     // M6: campaigns/exports joined the permission matrix — viewers lack them.
     expect(viewerKeys).not.toContain("campaigns");
     expect(viewerKeys).not.toContain("exports");
+    // M8: copilot/reports carry their own seeded codes — viewers lack them.
+    expect(viewerKeys).not.toContain("copilot");
+    expect(viewerKeys).not.toContain("reports");
   });
 });

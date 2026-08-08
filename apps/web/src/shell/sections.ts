@@ -1,9 +1,11 @@
 import {
   ChartColumn,
   Download,
+  FileText,
   Lightbulb,
   LayoutDashboard,
   Megaphone,
+  MessageSquareText,
   Package,
   ScrollText,
   Settings,
@@ -19,10 +21,11 @@ import {
 } from "lucide-react";
 
 /**
- * Navigation registry — the 15 application surfaces defined by P9, in P9
- * order. This is the ONLY place section metadata lives: sidebar groups, the
- * command palette, route guards, and tests all read from here, so navigation
- * can never drift between entry points.
+ * Navigation registry — the application surfaces defined by P9 (extended by
+ * M8 with the copilot + report vault), in P9 order. This is the ONLY place
+ * section metadata lives: sidebar groups, the command palette, route guards,
+ * and tests all read from here, so navigation can never drift between entry
+ * points.
  *
  * `permission` mirrors the RBAC codes seeded in M1 — a section renders only
  * when the signed-in user holds it (server enforces the same rule; the shell
@@ -125,6 +128,17 @@ export const APP_SECTIONS: readonly AppSection[] = [
     description: "Stock levels per location with low-stock alerting.",
   },
   {
+    key: "copilot",
+    path: "/copilot",
+    label: "AI Copilot",
+    icon: MessageSquareText,
+    group: "Intelligence",
+    permission: "copilot:read",
+    availability: "live",
+    milestone: null,
+    description: "Ask about your store in plain words — answers render from stamped evidence, never invented numbers.",
+  },
+  {
     key: "automation",
     path: "/automation",
     label: "Automation",
@@ -157,6 +171,17 @@ export const APP_SECTIONS: readonly AppSection[] = [
     milestone: null,
     description:
       "Email and SMS campaigns with A/B variants, tracked opens and clicks, and honest unsubscribe handling.",
+  },
+  {
+    key: "reports",
+    path: "/reports",
+    label: "Reports",
+    icon: FileText,
+    group: "Intelligence",
+    permission: "reports:read",
+    availability: "live",
+    milestone: null,
+    description: "Scheduled enterprise reports with Executive-agent summaries, filed as PDFs and deliverable by email.",
   },
   {
     key: "notifications",

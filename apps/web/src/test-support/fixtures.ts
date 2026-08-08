@@ -61,6 +61,7 @@ export function storeResponse(overrides: {
       aiPreferences: { autonomyMode: "MANUAL" },
       automationPreferences: {},
       featureOverrides: {},
+      reportPreferences: {},
       onboardingCompletedAt:
         overrides.onboardingCompletedAt === undefined ? "2026-07-21T09:00:00.000Z" : overrides.onboardingCompletedAt,
     },

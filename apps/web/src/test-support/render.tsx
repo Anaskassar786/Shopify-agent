@@ -51,6 +51,11 @@ export const OWNER_PERMISSIONS = [
   "support:manage",
   "exports:read",
   "exports:manage",
+  // M8: copilot + enterprise reports (seeded M8 codes, ADR 35).
+  "copilot:read",
+  "copilot:ask",
+  "reports:read",
+  "reports:manage",
 ] as const;
 
 export const VIEWER_PERMISSIONS = [

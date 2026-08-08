@@ -16,7 +16,7 @@ const envSchema = z
     NODE_ENV: z.nativeEnum(Environment).default(Environment.Development),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     APP_URL: z.string().url().default("http://localhost:3000"),
-    APP_VERSION: z.string().min(1).default("1.0.0"),
+    APP_VERSION: z.string().min(1).default("1.1.0"),
 
     DATABASE_URL: optionalSecret,
     REDIS_URL: optionalSecret,

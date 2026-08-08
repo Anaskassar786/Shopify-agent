@@ -252,6 +252,8 @@ export const QueueName = {
   Automation: "automation",
   /** M6: report file generation (CSV/XLSX/PDF). */
   Export: "export",
+  /** M8: enterprise period reports (tick fan-out + per-store generation). */
+  Reporting: "reporting",
 } as const;
 export type QueueName = (typeof QueueName)[keyof typeof QueueName];
 
@@ -275,6 +277,10 @@ export const AiAgentId = {
   RevenueRecovery: "REVENUE_RECOVERY",
   ProductIntelligence: "PRODUCT_INTELLIGENCE",
   Inventory: "INVENTORY",
+  /** M8: pricing-optimization drafts (margin math owned by rules — ADR 36). */
+  Pricing: "PRICING",
+  /** M8: executive-summary prose for period reports (ADR 36). */
+  Executive: "EXECUTIVE",
 } as const;
 export type AiAgentId = (typeof AiAgentId)[keyof typeof AiAgentId];
 
@@ -308,6 +314,8 @@ export const RecommendationType = {
   LaunchPromotion: "LAUNCH_PROMOTION",
   ReduceRefundRisk: "REDUCE_REFUND_RISK",
   RevenueDeclineReview: "REVENUE_DECLINE_REVIEW",
+  /** M8 pricing agent — advisory price uplift on demand-outpacing-cover signal. */
+  AdjustPrice: "ADJUST_PRICE",
 } as const;
 export type RecommendationType =
   (typeof RecommendationType)[keyof typeof RecommendationType];
@@ -687,3 +695,51 @@ export const TrackingTokenKind = {
   Unsubscribe: "unsubscribe",
 } as const;
 export type TrackingTokenKind = (typeof TrackingTokenKind)[keyof typeof TrackingTokenKind];
+
+/** M8 copilot: the closed intent vocabulary (ADR 32 — deterministic routing). */
+export const CopilotIntent = {
+  SalesWhyDown: "SALES_WHY_DOWN",
+  RestockWhat: "RESTOCK_WHAT",
+  VipCustomers: "VIP_CUSTOMERS",
+  ProductsDying: "PRODUCTS_DYING",
+  DiscountSuggestion: "DISCOUNT_SUGGESTION",
+  RevenueForecast: "REVENUE_FORECAST",
+  RevenueSummary: "REVENUE_SUMMARY",
+  ChurnRisks: "CHURN_RISKS",
+  BusinessSummary: "BUSINESS_SUMMARY",
+  GeneralOther: "GENERAL_OTHER",
+} as const;
+export type CopilotIntent = (typeof CopilotIntent)[keyof typeof CopilotIntent];
+
+/** M8 copilot conversation roles. */
+export const CopilotMessageRole = {
+  Merchant: "MERCHANT",
+  Assistant: "ASSISTANT",
+} as const;
+export type CopilotMessageRole =
+  (typeof CopilotMessageRole)[keyof typeof CopilotMessageRole];
+
+/** M8 enterprise reporting cadences (P8 REPORTING: daily/weekly/monthly/quarterly). */
+export const ReportKind = {
+  Daily: "DAILY",
+  Weekly: "WEEKLY",
+  Monthly: "MONTHLY",
+  Quarterly: "QUARTERLY",
+} as const;
+export type ReportKind = (typeof ReportKind)[keyof typeof ReportKind];
+
+/** Report build lifecycle — convergent per (store, kind, period). */
+export const ReportStatus = {
+  Building: "BUILDING",
+  Ready: "READY",
+  Failed: "FAILED",
+} as const;
+export type ReportStatus = (typeof ReportStatus)[keyof typeof ReportStatus];
+
+/** Deterministic forecast method identifiers (ADR 33 — versioned math). */
+export const ForecastMethod = {
+  RevenueWeeklySeasonalityV1: "revenue.weekly-seasonality.v1",
+  DemandVelocityV1: "demand.velocity.v1",
+  StockoutVelocityV1: "stockout.velocity.v1",
+} as const;
+export type ForecastMethod = (typeof ForecastMethod)[keyof typeof ForecastMethod];

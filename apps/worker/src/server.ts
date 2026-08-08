@@ -63,6 +63,8 @@ import {
   workflowRunResumeHandler,
   workflowRunStartHandler,
 } from "./handlers/automation.handlers";
+import { reportsGenerateHandler, reportsTickHandler } from "./handlers/reports.handlers";
+import { ReportsGenerateJob, ReportsTickJob } from "@profit/reporting";
 import { startHealthServer } from "./health/server";
 
 export interface RunningWorker {
@@ -106,6 +108,9 @@ export function registerWorkerJobs(deps: WorkerDeps): void {
   deps.queue.register(CampaignSendBatchJob, campaignSendBatchHandler(deps));
   deps.queue.register(ExportGenerateJob, exportGenerateHandler(deps));
   deps.queue.register(SupportNotifyJob, supportNotifyHandler(deps));
+  // M8 enterprise reporting plane
+  deps.queue.register(ReportsTickJob, reportsTickHandler(deps));
+  deps.queue.register(ReportsGenerateJob, reportsGenerateHandler(deps));
 }
 
 /** Repeatable schedules (P3 scheduler). BullMQ dedupes by scheduleId; memory driver mirrors semantics. */
@@ -172,6 +177,14 @@ export async function registerWorkerSchedules(deps: WorkerDeps): Promise<void> {
     scheduleId: "automation.tick",
     definition: AutomationTickJob,
     everyMs: deps.env.AUTOMATION_TICK_INTERVAL_MS,
+    payload: {},
+  });
+  // M8: due-cadence report convergence (6h default; merchant schedules are
+  // data, the tick only converges what the settings declare due).
+  await deps.queue.upsertSchedule({
+    scheduleId: "reports.tick",
+    definition: ReportsTickJob,
+    everyMs: deps.env.REPORTS_TICK_INTERVAL_MS,
     payload: {},
   });
 }

@@ -54,6 +54,8 @@ import { campaignsRouter } from "../modules/automation-center/campaigns.router";
 import { exportsRouter } from "../modules/automation-center/exports.router";
 import { supportRouter } from "../modules/automation-center/support.router";
 import { trackingRouter } from "../modules/automation-center/tracking.router";
+import { copilotRouter } from "../modules/copilot/copilot.router";
+import { reportsRouter } from "../modules/reports/reports.router";
 import { searchRouter } from "../modules/search/search.router";
 import {
   customersRouter,
@@ -293,6 +295,10 @@ export async function buildTestEnvironment(options: TestEnvironmentOptions = {})
         exports: exportsRouter({ db, jwt, audit, queue, persistence, logger }),
         support: supportRouter({ db, jwt, audit }),
         tracking: trackingRouter({ db, logger, trackingSecret: TRACKING_SECRET }),
+        // M8: provider/sender are null in the harness — deterministic-first
+        // paths (ADR 32) are what the suites pin; the provider path is unit-tested.
+        copilot: copilotRouter({ db, jwt, provider: null }),
+        reports: reportsRouter({ db, jwt, logger, provider: null, emailSender: null }),
       },
     },
   });

@@ -82,6 +82,10 @@ export const EXPECTATIONS = {
   restockHorizonDays: 14,
   /** Momentum promotion lifts the next 7 days a few percent. */
   promotionLiftRate: 0.04,
+  /** Advisory price uplift on demand-outpacing-cover products (M8 pricing agent). */
+  priceUpliftRate: 0.05,
+  /** Conservative demand retention at the advisory uplift point. */
+  priceUpliftRetentionRate: 0.95,
 } as const;
 
 const MAX_CART_RECOVERIES_PER_RUN = 5;
@@ -430,7 +434,70 @@ const promotionRule: RuleDefinition = {
   },
 };
 
-/** The v1 catalog — one rule per recommendation type, all deterministic. */
+/**
+ * PRICING (M8, ADR 36): demand is outpacing stock cover — a small uplift
+ * protects margin while the merchant reorders. Purely ADVISORY: the engine
+ * never touches prices; the margin math stays here in the rule layer.
+ */
+const pricingMomentumRule: RuleDefinition = {
+  id: "pricing.momentum-uplift",
+  version: 1,
+  agentId: AiAgentId.Pricing,
+  type: RecommendationType.AdjustPrice,
+  evaluate(ctx) {
+    // Signal: sells ≥1/day with ≤10 days of cover — depletion outpaces reorder.
+    const candidates = ctx.products.lowStock
+      .filter((p) => p.velocityPerDay >= 1 && p.daysOfStock <= 10)
+      .slice(0, 5);
+    if (candidates.length === 0) return [];
+    const horizonSalesCents = (velocity: number, price: number) =>
+      Math.round(velocity * EXPECTATIONS.restockHorizonDays * price);
+    const retention = EXPECTATIONS.priceUpliftRetentionRate;
+    const uplift = EXPECTATIONS.priceUpliftRate;
+    const marginGainCents = candidates.reduce(
+      (sum, p) => sum + Math.round(horizonSalesCents(p.velocityPerDay, p.priceCents) * uplift * retention),
+      0,
+    );
+    const demandAtRiskCents = candidates.reduce(
+      (sum, p) => sum + Math.round(horizonSalesCents(p.velocityPerDay, p.priceCents) * (1 - retention)),
+      0,
+    );
+    return [{
+      ruleId: pricingMomentumRule.id,
+      ruleVersion: pricingMomentumRule.version,
+      agentId: pricingMomentumRule.agentId,
+      type: pricingMomentumRule.type,
+      actionType: ActionType.Advisory,
+      subjectKey: `pricing:${isoWeekKey(ctx.computedAt)}`,
+      subjects: { productIds: candidates.map((p) => p.id) },
+      estimatedRevenueCents: marginGainCents,
+      estimatedCostCents: demandAtRiskCents,
+      basePriority: Priority.Medium,
+      baseRisk: RiskLevel.Medium,
+      facts: candidates.slice(0, 3).map(
+        (p) =>
+          `${p.title}: sells ~${p.velocityPerDay}/day with ~${p.daysOfStock} days of stock — a ${Math.round(uplift * 100)}% uplift adds ${(Math.round(horizonSalesCents(p.velocityPerDay, p.priceCents) * uplift * retention) / 100).toFixed(2)} ${ctx.store.currency} over ${EXPECTATIONS.restockHorizonDays} days`,
+      ).concat([
+        `Retention expectation at the uplift point: ${Math.round(retention * 100)}% of demand (conservative constant)`,
+        "Advisory only — review conversion impact before editing prices in Shopify",
+      ]),
+      promptPayload: {
+        products: candidates.map((p) => ({
+          title: p.title,
+          priceCents: p.priceCents,
+          velocityPerDay: p.velocityPerDay,
+          daysOfStock: p.daysOfStock,
+        })),
+        upliftPercent: Math.round(uplift * 100),
+        retentionPct: Math.round(retention * 100),
+      },
+      executionTemplate: { note: "advisory.price-uplift-review", upliftPercent: Math.round(uplift * 100) },
+      expiresInDays: 7,
+    }];
+  },
+};
+
+/** The v1 catalog — one rule per recommendation type (+M8 pricing), all deterministic. */
 export const RULE_CATALOG: readonly RuleDefinition[] = [
   abandonedCartsRule,
   restockRule,
@@ -440,6 +507,7 @@ export const RULE_CATALOG: readonly RuleDefinition[] = [
   refundRiskRule,
   revenueDeclineRule,
   promotionRule,
+  pricingMomentumRule,
 ];
 
 export function evaluateRules(ctx: BusinessContext): readonly RuleFiring[] {

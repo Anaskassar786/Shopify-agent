@@ -16,6 +16,7 @@
   "dependencies": {
     "@profit/cache": "workspace:*",
     "@profit/db": "workspace:*",
+    "@profit/forecasting": "workspace:*",
     "@profit/logger": "workspace:*",
     "@profit/queue": "workspace:*",
     "@profit/shopify": "workspace:*",

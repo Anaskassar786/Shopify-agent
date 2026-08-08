@@ -13,6 +13,7 @@ import {
 import type { StoreCache } from "@profit/cache";
 import { CACHE_TTL } from "@profit/cache";
 import { ROI_WINDOWS_DAYS, RoiReportService, type RoiWindowDays } from "@profit/ai";
+import { ForecastService } from "@profit/forecasting";
 import { requireActiveStore, requireAppAuth, requirePermission } from "../../middleware/auth.middleware";
 import { getRequestContext } from "../../lib/context/request-context";
 import { successEnvelope } from "../../lib/http/envelope";
@@ -54,6 +55,27 @@ export interface AnalyticsRouterDeps {
 export function analyticsRouter(deps: AnalyticsRouterDeps): ExpressRouter {
   const router = Router();
   router.use(requireAppAuth(deps.jwt), requireActiveStore(deps.db));
+
+  /**
+   * M8 deterministic forecasting (ADR 33): revenue projection + demand
+   * velocity + stockout watch + churn watch in one method-stamped read model.
+   * Served uncached — it feeds copilot, reports and the dashboard alike.
+   */
+  router.get("/forecasts", requirePermission("analytics:read"), async (req, res, next) => {
+    try {
+      if (req.appAuth === undefined) throw new Error("auth context missing after guard");
+      const raw = typeof req.query["horizonDays"] === "string" ? Number(req.query["horizonDays"]) : 14;
+      if (![7, 14, 30].includes(raw)) {
+        throw new ValidationError("invalid horizon", [
+          { code: "VALIDATION_FAILED", message: "horizonDays must be 7, 14 or 30", field: "horizonDays" },
+        ]);
+      }
+      const forecast = await new ForecastService(deps.db).storeForecast(req.appAuth.storeId, raw, new Date());
+      res.status(200).json(successEnvelope(getRequestContext(), forecast));
+    } catch (error) {
+      next(error);
+    }
+  });
 
   /**
    * M5 ROI read-model (P11 ROI reporting): measured attribution vs metered AI

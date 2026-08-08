@@ -69,3 +69,11 @@ export const M6_QK = {
   supportTickets: (page: number) => ["support", "tickets", page] as const,
   supportTicket: (id: string) => ["support", "tickets", id] as const,
 };
+
+/** M8 Phase-3 keys (copilot threads + report vault). */
+export const M8_QK = {
+  copilotConversations: ["copilot", "conversations"] as const,
+  copilotConversation: (id: string) => ["copilot", "conversations", id] as const,
+  reports: (kind: string) => ["reports", kind] as const,
+  report: (id: string) => ["reports", "detail", id] as const,
+};

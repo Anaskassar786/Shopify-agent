@@ -189,3 +189,159 @@ export function buildPdf(input: PdfTableInput): Buffer {
 
   return assemblePdf(objects);
 }
+
+/* ── Multi-section documents (M8 enterprise reports — ADR 34) ────────────── */
+
+export interface PdfSection {
+  readonly heading: string;
+  readonly paragraphs: readonly string[];
+  readonly table: { readonly headers: readonly string[]; readonly rows: readonly (readonly CsvCell[])[] } | null;
+}
+
+export interface PdfDocumentInput {
+  readonly title: string;
+  readonly subtitle: string;
+  readonly sections: readonly PdfSection[];
+}
+
+const HEADING_SIZE = 10;
+const PARA_LINE_HEIGHT = 11;
+const SECTION_GAP = 8;
+
+/** Word-wrap to the page width at the given size (pre-sanitized text). */
+function wrapText(value: string, size: number): string[] {
+  const widthPt = PAGE_WIDTH - MARGIN * 2;
+  const maxChars = Math.max(8, Math.floor(widthPt / (size * CHAR_WIDTH_FACTOR)));
+  const words = sanitizeText(value).split(/\s+/).filter((word) => word.length > 0);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current.length === 0 ? word : `${current} ${word}`;
+    if (sanitizeText(candidate).length <= maxChars) {
+      current = candidate;
+    } else {
+      if (current.length > 0) lines.push(current);
+      // A single over-wide word hard-truncates like table cells do.
+      current = truncateToWidth(word, widthPt, size);
+    }
+  }
+  if (current.length > 0) lines.push(current);
+  return lines.slice(0, 40); // bounded — a section never floods a report
+}
+
+interface PageOps {
+  readonly ops: string[];
+}
+
+/** Lay the whole document out as paginated content ops (tables carry headers). */
+function layoutDocument(input: PdfDocumentInput): PageOps[] {
+  const pages: { ops: string[] }[] = [];
+  let ops: string[] = [];
+  let cursorY = 0;
+
+  const startPage = (): void => {
+    ops = [];
+    // Every page begins below the title + subtitle band.
+    cursorY = PAGE_HEIGHT - MARGIN - 16 - HEADER_GAP;
+  };
+  startPage();
+  const pageBreak = (): void => {
+    pages.push({ ops });
+    startPage();
+  };
+  const ensure = (needed: number): void => {
+    if (cursorY - needed < MARGIN) pageBreak();
+  };
+
+  for (const section of input.sections) {
+    ensure(HEADING_SIZE + SECTION_GAP + ROW_HEIGHT);
+    ops.push(`BT /F2 ${HEADING_SIZE} Tf ${MARGIN} ${cursorY} Td (${pdfEscape(section.heading)}) Tj ET`);
+    cursorY -= HEADING_SIZE + 6;
+    for (const paragraph of section.paragraphs) {
+      for (const line of wrapText(paragraph, BODY_SIZE)) {
+        ensure(PARA_LINE_HEIGHT);
+        ops.push(`BT /F1 ${BODY_SIZE} Tf ${MARGIN} ${cursorY} Td (${pdfEscape(line)}) Tj ET`);
+        cursorY -= PARA_LINE_HEIGHT;
+      }
+      cursorY -= 2;
+    }
+    const table = section.table;
+    if (table !== null && table.headers.length > 0) {
+      if (table.headers.length > MAX_COLUMNS) {
+        throw new Error(`pdf: header count must be 1..${MAX_COLUMNS}`);
+      }
+      const columns = computeColumnWidths(table.headers, table.rows);
+      const tableWidth = columns.reduce((sum, col) => sum + col.width, 0);
+      const drawHeader = (): void => {
+        ops.push(`${MARGIN} ${cursorY - ROW_HEIGHT + 3} ${tableWidth} ${ROW_HEIGHT} re f 0.92 g`);
+        ops.push("0 g");
+        let cursorX = MARGIN;
+        for (let i = 0; i < table.headers.length; i += 1) {
+          const text = truncateToWidth(table.headers[i]!, columns[i]!.width - 6, BODY_SIZE);
+          ops.push(`BT /F2 ${BODY_SIZE} Tf ${cursorX + 3} ${cursorY - ROW_HEIGHT + 7} Td (${pdfEscape(text)}) Tj ET`);
+          cursorX += columns[i]!.width;
+        }
+        cursorY -= ROW_HEIGHT;
+      };
+      ensure(ROW_HEIGHT * 2);
+      drawHeader();
+      for (const row of table.rows) {
+        ensure(ROW_HEIGHT);
+        if (ops.length === 0) drawHeader(); // fresh page mid-table: repeat header
+        let cursorX = MARGIN;
+        for (let i = 0; i < table.headers.length; i += 1) {
+          const text = truncateToWidth(cellText(row[i] ?? null), columns[i]!.width - 6, BODY_SIZE);
+          ops.push(`BT /F1 ${BODY_SIZE} Tf ${cursorX + 3} ${cursorY - ROW_HEIGHT + 7} Td (${pdfEscape(text)}) Tj ET`);
+          cursorX += columns[i]!.width;
+        }
+        ops.push(`${MARGIN} ${cursorY - ROW_HEIGHT} ${tableWidth} 0.4 re f 0.88 g`);
+        ops.push("0 g");
+        cursorY -= ROW_HEIGHT;
+      }
+    }
+    cursorY -= SECTION_GAP;
+  }
+  pages.push({ ops });
+  return pages;
+}
+
+/**
+ * Multi-section report PDF: one flow document (headings, wrapped paragraphs,
+ * tables with repeated headers across page breaks). Title/subtitle render on
+ * every page with page numbering, like the single-table writer.
+ */
+export function buildPdfDocument(input: PdfDocumentInput): Buffer {
+  if (input.sections.length === 0) throw new Error("pdf: document needs at least one section");
+  const flows = layoutDocument(input);
+  const objects: PdfObject[] = [];
+  const pageObjectIds: number[] = [];
+  let nextId = 3;
+  for (let p = 0; p < flows.length; p += 1) {
+    pageObjectIds.push(nextId);
+    nextId += 2;
+  }
+  const fontRegularId = nextId;
+  const fontBoldId = nextId + 1;
+
+  objects.push({ body: "<< /Type /Catalog /Pages 2 0 R >>" });
+  const kids = pageObjectIds.map((id) => `${id} 0 R`).join(" ");
+  objects.push({ body: `<< /Type /Pages /Kids [ ${kids} ] /Count ${pageObjectIds.length} >>` });
+
+  for (let p = 0; p < flows.length; p += 1) {
+    const topOps = [
+      `BT /F2 ${TITLE_SIZE} Tf ${MARGIN} ${PAGE_HEIGHT - MARGIN} Td (${pdfEscape(input.title)}) Tj ET`,
+      `BT /F1 ${BODY_SIZE} Tf ${MARGIN} ${PAGE_HEIGHT - MARGIN - 16} Td (${pdfEscape(`${input.subtitle}  ·  Page ${p + 1} of ${flows.length}`)}) Tj ET`,
+    ];
+    const stream = [...topOps, ...flows[p]!.ops].join("\n");
+    const pageId = pageObjectIds[p]!;
+    objects.push({
+      body: `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] /Resources << /Font << /F1 ${fontRegularId} 0 R /F2 ${fontBoldId} 0 R >> >> /Contents ${pageId + 1} 0 R >>`,
+    });
+    objects.push({
+      body: `<< /Length ${Buffer.byteLength(stream, "latin1")} >>\nstream\n${stream}\nendstream`,
+    });
+  }
+  objects.push({ body: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>" });
+  objects.push({ body: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>" });
+  return assemblePdf(objects);
+}

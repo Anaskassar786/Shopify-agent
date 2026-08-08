@@ -207,6 +207,51 @@ describe("promotion window", () => {
   });
 });
 
+describe("pricing.momentum-uplift (M8, ADR 36)", () => {
+  it("fires only on demand outpacing cover; advisory margin math from documented constants", () => {
+    const ctx = makeContext({
+      products: {
+        trackedCount: 10,
+        topByRevenue: [],
+        lowStock: [
+          { id: "p1", title: "Fast Kettle", priceCents: 5_000, onHand: 9, velocityPerDay: 3, daysOfStock: 3 },
+          { id: "p2", title: "Gentle Kettle", priceCents: 5_000, onHand: 40, velocityPerDay: 3.1, daysOfStock: 12 },
+          { id: "p3", title: "Barely Kettle", priceCents: 5_000, onHand: 2, velocityPerDay: 0.5, daysOfStock: 4 },
+        ],
+        deadStock: [],
+      },
+    });
+    const firing = evaluateRules(ctx).find((f) => f.ruleId === "pricing.momentum-uplift");
+    expect(firing).toBeDefined();
+    expect(firing?.agentId).toBe(AiAgentId.Pricing);
+    expect(firing?.type).toBe(RecommendationType.AdjustPrice);
+    // Strictly ADVISORY — the engine never changes prices itself.
+    expect(firing?.actionType).toBe(ActionType.Advisory);
+    // Only p1 qualifies: velocity ≥ 1 AND cover ≤ 10 days.
+    expect(firing?.subjects.productIds).toEqual(["p1"]);
+    // horizon = 3/day × 14 × 5000 = 210000; uplift 5% × retention 95% → 9975
+    expect(firing?.estimatedRevenueCents).toBe(9_975);
+    // jeopardized demand = 210000 × 5% non-retained → 10500
+    expect(firing?.estimatedCostCents).toBe(10_500);
+    expect(firing?.baseRisk).toBe(RiskLevel.Medium);
+    expect(firing?.expiresInDays).toBe(7);
+  });
+
+  it("stays silent without the pricing signal (no fake margin opportunities)", () => {
+    const ctx = makeContext({
+      products: {
+        trackedCount: 2,
+        topByRevenue: [],
+        lowStock: [
+          { id: "p2", title: "Covered Kettle", priceCents: 5_000, onHand: 40, velocityPerDay: 3, daysOfStock: 13 },
+        ],
+        deadStock: [],
+      },
+    });
+    expect(evaluateRules(ctx).find((f) => f.ruleId === "pricing.momentum-uplift")).toBeUndefined();
+  });
+});
+
 describe("catalog integrity", () => {
   it("one deterministic rule per type, all agents mapped, versions positive", () => {
     const types = new Set(RULE_CATALOG.map((rule) => rule.type));

@@ -9,6 +9,8 @@ import { DashboardPage } from "../pages/DashboardPage";
 import { BillingPage } from "../pages/BillingPage";
 import { SupportPage } from "../pages/SupportPage";
 import { ExportsPage } from "../pages/ExportsPage";
+import { CopilotPage } from "../pages/CopilotPage";
+import { ReportsPage } from "../pages/ReportsPage";
 import { AdminApp } from "../admin/AdminApp";
 import { pagedResponse, renderApp, type StubHandlers } from "../test-support/render";
 import {
@@ -131,6 +133,33 @@ describe("axe WCAG 2.2 AA — merchant embedded surfaces", () => {
     });
     await screen.findByText("No exports yet");
     await expectNoViolations(document.body, "ExportsPage");
+    view.unmount();
+  });
+
+  it("Copilot (M8 chat surface) has no violations", async () => {
+    const view = renderApp(<CopilotPage />, {
+      route: "/copilot",
+      handlers: {
+        get: { "/api/v1/copilot/conversations": () => [] },
+      },
+    });
+    await screen.findByText("Ask about your store");
+    await expectNoViolations(document.body, "CopilotPage");
+    view.unmount();
+  });
+
+  it("Reports vault (M8 schedule + table) has no violations", async () => {
+    const view = renderApp(<ReportsPage />, {
+      route: "/reports",
+      handlers: {
+        get: {
+          "/api/v1/store": () => storeResponse(),
+          "/api/v1/reports": () => [],
+        },
+      },
+    });
+    await screen.findByText("No reports yet");
+    await expectNoViolations(document.body, "ReportsPage");
     view.unmount();
   });
 });

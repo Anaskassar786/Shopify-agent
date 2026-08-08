@@ -163,16 +163,46 @@ You are the INVENTORY agent: stockout risk and capital efficiency. For restock f
       deadStock: ctx.products.deadStock.slice(0, 10),
     }),
   },
+  [AiAgentId.Pricing]: {
+    promptId: "agent.pricing",
+    version: "v1",
+    agentId: AiAgentId.Pricing,
+    systemPrompt: `${SYSTEM_CORE}
+
+You are the PRICING agent: price optimization and margin protection (M8, advisory only — the engine never changes prices itself). Your firings flag products whose demand velocity is outpacing stock cover; a small, evidence-bounded uplift protects margin while the merchant reorders. Explain the demand-vs-cover signal honestly, state the documented retention expectation, and never promise a conversion outcome.`,
+    contextSlice: (ctx) => ({
+      ...storeCard(ctx),
+      lowStock: ctx.products.lowStock.slice(0, 8),
+      topByRevenue: ctx.products.topByRevenue.slice(0, 5),
+    }),
+  },
+  [AiAgentId.Executive]: {
+    promptId: "agent.executive",
+    version: "v1",
+    agentId: AiAgentId.Executive,
+    // EXECUTIVE never joins decision runs (not in AGENT_RUN_ORDER) — it
+    // phrases report/copilot prose through the slot bridge. The spec exists
+    // so promptSpecFor stays total over the enum.
+    systemPrompt: `${SYSTEM_CORE}
+
+You are the EXECUTIVE agent: board-grade prose for period reports and copilot leads. All numeric positions bind through the indexed-slot bridge — you select which figure goes where; the engine owns the values.`,
+    contextSlice: (ctx) => storeCard(ctx),
+  },
 };
 
 export function promptSpecFor(agentId: AiAgentId): AgentPromptSpec {
   return REGISTRY[agentId];
 }
 
-/** Agents in canonical run order (cost check happens per agent, so order = priority). */
+/**
+ * Agents in canonical run order (cost check happens per agent, so order =
+ * priority). EXECUTIVE is deliberately absent — it phrases prose through the
+ * slot bridge (copilot leads, report summaries), never rule firings.
+ */
 export const AGENT_RUN_ORDER: readonly AiAgentId[] = [
   AiAgentId.RevenueRecovery,
   AiAgentId.Inventory,
+  AiAgentId.Pricing,
   AiAgentId.CustomerIntelligence,
   AiAgentId.BusinessAnalyst,
   AiAgentId.ProductIntelligence,

@@ -3,6 +3,7 @@ import { eq } from "@profit/db";
 import type { ProfitDb } from "@profit/db";
 import { storeSettings, stores, subscriptions, withStoreScope } from "@profit/db";
 import { EngagementService } from "@profit/billing";
+import { reportPreferencesSchema } from "@profit/reporting";
 import { EngagementEventKind } from "@profit/types";
 import { z } from "zod";
 import { getRequestContext } from "../../lib/context/request-context";
@@ -69,6 +70,8 @@ const patchSettingsSchema = z
       })
       .strict()
       .optional(),
+    /** M8: enterprise reporting schedule (ADR 34) — schema lives in @profit/reporting. */
+    reportPreferences: reportPreferencesSchema.optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, "at least one settings group is required");
@@ -140,6 +143,19 @@ export function storeRouter(deps: {
             ? { ...(current.aiPreferences as Record<string, unknown>), ...patch.aiPreferences }
             : (current.aiPreferences as Record<string, unknown>);
         // Nested merge for autopilot groups — partial updates must not drop siblings.
+        const currentReports = current.reportPreferences as Record<string, unknown>;
+        const currentReportKinds = (currentReports["kinds"] ?? {}) as Record<string, unknown>;
+        const nextReports =
+          patch.reportPreferences !== undefined
+            ? {
+                ...currentReports,
+                ...patch.reportPreferences,
+                kinds: {
+                  ...currentReportKinds,
+                  ...(patch.reportPreferences.kinds ?? {}),
+                },
+              }
+            : currentReports;
         const currentAutomation = current.automationPreferences as Record<string, unknown>;
         const isAutomationEnabled = (prefs: Record<string, unknown>): boolean => {
           const mode = typeof prefs["mode"] === "string" ? prefs["mode"] : "MANUAL";
@@ -170,6 +186,7 @@ export function storeRouter(deps: {
             branding: nextBranding,
             aiPreferences: nextAi,
             automationPreferences: nextAutomation,
+            reportPreferences: nextReports,
             updatedAt: new Date(),
           })
           .where(eq(storeSettings.storeId, storeId))

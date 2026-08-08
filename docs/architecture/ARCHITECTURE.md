@@ -53,6 +53,11 @@ Shopify-agent/
 │   ├── ui/                  # Design system (tokens → Tailwind theme, components, SVG charts) (M3)
 │   ├── ai/                  # AI decision engine: provider port+Gemini · context builder · rule catalog ·
 │   │                        #   calibration · recommendation service · executor · attribution (M4)
+│   │                        #   M8: copilot (intents/evidence/composer) · slot bridge · executive summaries
+│   ├── billing/             # Billing + growth plane: entitlements · charges · trial lifecycle (M5)
+│   ├── automation/          # Workflow DAG engine · campaigns · zero-dep exports · PDF writer (M6)
+│   ├── forecasting/         # Deterministic, method-versioned forecasting: revenue · demand · stockout · churn (M8)
+│   ├── reporting/           # Enterprise reports: period sections · PDF vault · scheduled tick + email (M8)
 │   └── (config presets live at repo root: tsconfig.base.json)
 ├── docs/
 │   ├── spec/                # 12-part PRD (source of truth)
@@ -112,8 +117,11 @@ packages/ai  (M4 as-built — shared by api (reads/approves) and worker (runs/ex
   │                                     repair pass, retry, per-model micro$ pricing table
   ├── context/builder.ts + health.ts    Business Context Builder (RLS-scoped, PII-minimized) +
   │                                     deterministic Store Health (6 weighted components)
-  ├── rules/catalog.ts                  8 versioned deterministic rules — money/subjects/estimates
-  ├── prompts/registry.ts               5 agents as versioned prompt packs (promptId@vN, Git-audited)
+  ├── rules/catalog.ts                  9 versioned deterministic rules — money/subjects/estimates (M8 +pricing)
+  ├── prompts/registry.ts               7 agents as versioned prompt packs (promptId@vN, Git-audited; M8
+  │                                     +PRICING in run order, +EXECUTIVE prose-only outside it)
+  ├── copilot/ + prompts/slots.ts       M8 copilot: intent grammar → evidence packs → evidence-bound
+  │                                     answers; optional LLM lead via indexed numeric-slot bridge
   ├── scoring.ts                        Server-side calibration: confidence caps/tiers, priority
   │                                     floor/+1 cap, risk max, acceptance-rate learning adjuster
   ├── service/recommendations.ts        RecommendationService: CAS state machine, dedupe fingerprints,
@@ -145,14 +153,20 @@ packages/ai  (M4 as-built — shared by api (reads/approves) and worker (runs/ex
 - Ledgers: `billing_events` (append-only, same-tx as every transition) and `engagement_events` (activation funnel, 7 milestones, partial-unique deduped per store). `invoices`/`payments` deliberately NOT tables — Shopify owns invoicing; the platform owns the causal trail (M5 amendment 1).
 - Cross-tenant analytics (`GrowthAnalyticsService`) run owner-role by design and are reachable ONLY from the key-gated `/api/v1/admin/*` read-only surface (every request audit-logged).
 
-### 4.8 Frontend (apps/web)
+### 4.8 Forecasting · Copilot · Enterprise Reports *(as built at M8 — `packages/forecasting`, `packages/reporting`, `packages/ai/src/copilot`)*
+- **Forecasting is deterministic + method-versioned** (`revenue.weekly-seasonality.v1`, `demand.velocity.v1`, `stockout.velocity.v1`, RFM churn): weekday-profile projection with horizon-widened residual bands, velocity blends, days-of-cover; every result stamps method + horizon + fit (ADR 33). No fake ML — a future model lands as a new method version.
+- **Copilot is deterministic-first, evidence-bound** (ADR 32): a closed 10-intent grammar routes to evidence builders (context + forecasts + open recommendations); answers render FROM the pack; the optional LLM lead crosses the provider port only through the indexed numeric-slot bridge (`{N1}…{Nk}` — numbers substituted out before, restored after), with deterministic fallback and truthful `aiCalls`/`modelEnhanced`. Threads persist per store under RLS.
+- **Enterprise reports reuse M6 machinery** (ADR 34): closed-period section builders (KPIs/deltas, highlights, performance + top-products tables, forecast strip, AI-action counts) + EXECUTIVE-agent summary via the slot bridge + paginated PDF via `buildPdfDocument`; convergent upsert per `(store, kind, periodStart)`; bytes in Postgres `bytea` (M6 precedent) with deterministic filenames; delivery via the M6 `EmailSender` port idempotent per UTC day (`lastEmailedOn`) + in-app System notification; schedule in `store_settings.report_preferences` read by the worker `reports.tick` (default 6h) on the `reporting` queue.
+- **RBAC** per M6 convention (ADR 35): `copilot:read/ask`, `reports:read/manage` seeded idempotently; forecasts ride `analytics:read`.
+
+### 4.9 Frontend (apps/web)
 - React 19, Vite, React Router, TanStack Query, Tailwind v4 (tokens from `packages/ui`), Lucide. *(M3 as-built deviations from the plan, per rule 6: **hand-rolled SVG charts instead of Recharts** — exact token colors, ~1.6 KB chunk, deterministic math, no 400 KB chart lib; **no React-Hook-Form/Framer Motion yet** — forms are one-field controlled inputs where RHF would be ceremony; both remain addable without rewrites if M4–M6 forms grow.)*
 - Shopify App Bridge v4 (CDN, meta-tag auto-init): Shopify session token → `/auth/session` exchange → first-party JWT in memory + rotating refresh (`profit.refresh.v1`); every API call carries `Authorization: Bearer`; no cookies inside the iframe.
-- Route-per-sidebar-section (15 sections, Part 9) driven by ONE section registry (`shell/sections.ts`) that powers nav, palette, guards and tests; every page is a lazy chunk; feature-folder per domain; skeleton/empty/error/offline states standardized via `QueryBoundary` + `packages/ui` primitives; command palette ⌘K + grouped global search (`/search`, per-permission groups).
+- Route-per-sidebar-section (18 sections after M8: +Copilot +Reports, Part 9 base 15) driven by ONE section registry (`shell/sections.ts`) that powers nav, palette, guards and tests; every page is a lazy chunk; feature-folder per domain; skeleton/empty/error/offline states standardized via `QueryBoundary` + `packages/ui` primitives; command palette ⌘K + grouped global search (`/search`, per-permission groups).
 - Realtime: WS at `/api/v1/realtime` (JWT on upgrade) → per-store channel `rt:{storeId}` via `packages/cache` pub/sub (memory driver in dev/test, Redis in prod) → client maps event kinds to TanStack invalidations + toasts. The socket never writes cache; REST stays the source of truth.
 - `AiConfidenceBadge`, `PriorityBadge` etc. use WCAG-checked token pairs (build-time lint). *(M3: ai/confidence tokens landed in `tokens.css`; badges arrive with the M4 AI surfaces.)*
 
-### 4.9 Cross-cutting
+### 4.10 Cross-cutting
 - **Config:** zod-validated env at boot, fail-fast; per-environment; never logged.
 - **Secrets:** Shopify offline tokens encrypted at rest (AES-256-GCM, `ENCRYPTION_KEY`, rotation = dual-key decrypt window).
 - **Logging:** pino JSON; redaction list (authorization, cookies, tokens, password, secret, apiKey, payment); bindings `{requestId, storeId, userId, service}`; levels INFO/WARN/ERROR/DEBUG(+CRITICAL alias).
@@ -219,3 +233,8 @@ Coverage target ≥80% on services; `no explicit any` enforced by lint rule.
 29. **M7: axe-core runs as a WCAG 2.2 AA gate** on the real mounted component tree (jsdom) for merchant surfaces + the operator console — only `color-contrast` (no paint in jsdom) and `region` (component-vs-shell landmark ownership) are scoped out, with the reason recorded in the suite.
 30. **M7: `shopify.app.toml` is generated, not hand-maintained** — scopes derive from the canonical list pinned to `.env.example` by test, topics from the webhook registry, API version from env; rendering happens at deploy for the target `APP_URL` so nothing host-specific or credential-bearing is committed. Runtime webhook registration (M1) remains authoritative for delivery; the TOML is the declarative parity surface for review.
 31. **M7: 1.0.0 at App-Store-readiness** — root semver + Keep-a-Changelog `CHANGELOG.md` + release/incident/change runbooks; product version surfaces via `APP_VERSION` in `/live`.
+32. **M8: copilot is deterministic-first, evidence-bound** — a closed 10-intent grammar routes plain-language questions to typed evidence builders (M4 business context + M8 forecasts + open recommendations); the answer renders FROM the evidence pack, so prose can never disagree with the drawn tables. The optional LLM pass only rephrases the lead through an indexed numeric-slot bridge (`{N1}…{Nk}`): figures are substituted out before the provider call and restored after, so business numbers never cross the provider port in either direction; `aiCalls` is counted only when the bridge actually runs, and any bridge failure falls back to the deterministic rendering.
+33. **M8: forecasting is deterministic + method-versioned, never fake ML** — `revenue.weekly-seasonality.v1` (56-day window, min 14, weekday profile with residual bands widened ×√(1+d/7) at z=1.28), `demand.velocity.v1` (60% 14d / 40% 30d blend), `stockout.velocity.v1` (days-of-cover projections), RFM churn risks. Every result stamps method + horizon + fit (R²) so merchants and reports can state exactly how a number was produced; a smarter model later is a new method version, not a silent change.
+34. **M8: enterprise reports reuse M6 machinery end-to-end** — deterministic section builders (KPIs, highlights, performance, top products, forecast, AI-action counts) + an EXECUTIVE-agent summary via the same slot bridge + paginated PDF through the extended `buildPdfDocument` in `@profit/automation`, with bytes in Postgres `bytea` (same lifecycle/isolation as the record — the M6 bytea precedent). Delivery rides the M6 `EmailSender` port (idempotent per UTC day via `lastEmailedOn`, honesty-typed outcomes like `email-unavailable`) + an in-app System notification with a 24h dedupe window. Schedule lives in `store_settings.report_preferences` jsonb read by the worker tick — no schedule table.
+35. **M8: RBAC follows the M6 convention** — `copilot:read`/`copilot:ask`, `reports:read`/`reports:manage` seeded idempotently (MANAGER all four, STAFF copilot+reports:read, ANALYST readers); forecasts ride the existing `analytics:read` since they are read-model derivations of metrics already behind it.
+36. **M8: multi-agent growth = registry + rules, not run-order** — the EXECUTIVE prose agent exists as a prompt spec + service but deliberately stays OUT of `AGENT_RUN_ORDER` (it writes prose, never proposes actions); PRICING joins the run-order with a margin-checked price-uplift rule whose arithmetic (uplift rate, retention estimate, margin floor) lives entirely in the deterministic rule layer.

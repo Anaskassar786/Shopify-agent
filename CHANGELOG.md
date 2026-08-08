@@ -4,6 +4,53 @@ All notable changes to PROFIT TOOL AI. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 milestone-scoped releases (one commit per milestone — see git history).
 
+## [1.1.0] — 2026-08-08 — M8: Phase 3 — AI Copilot · Forecasting · Enterprise Reports
+
+Feature release: the merchant-facing AI conversation surface, method-versioned
+forecasting, and the scheduled enterprise-reporting plane.
+
+### Added
+
+- **AI Copilot** — `/copilot` web surface + `POST /api/v1/copilot/ask` +
+  conversation list/detail. Closed 10-intent grammar → deterministic,
+  evidence-bound answer packs (business context + forecasts + open
+  recommendations); answers render FROM evidence. Optional EXECUTIVE-agent
+  lead polish via the indexed numeric-slot bridge — business figures never
+  cross the provider port, in either direction. RLS-persisted threads with
+  per-message intent/pattern audit (ADR 32).
+- **`@profit/forecasting`** — deterministic forecasting with stamped methods:
+  `revenue.weekly-seasonality.v1` (weekday profile, residual intervals
+  widened by horizon, honest null under 14-day history),
+  `demand.velocity.v1` (14d/30d blend), `stockout.velocity.v1`
+  (days-of-cover), RFM churn risks. `GET /api/v1/analytics/forecasts`
+  (ADR 33).
+- **`@profit/reporting`** — enterprise reports: closed DAILY/WEEKLY/MONTHLY/
+  QUARTERLY periods, convergent `(store, kind, period)` upsert (BUILDING →
+  READY|FAILED), deterministic sections + EXECUTIVE summary, paginated PDFs
+  via `buildPdfDocument`, byte storage in Postgres with deterministic
+  filenames, worker tick (`reporting` queue, `REPORTS_TICK_INTERVAL_MS`,
+  default 6h) per `store_settings.report_preferences`, email delivery via
+  the M6 SMTP port idempotent per UTC day with typed honesty outcomes,
+  in-app System notifications (ADR 34).
+- **Two agents** — EXECUTIVE (prose-only, deliberately outside the decision
+  run-order) and PRICING (joins the run-order with the 9th rule,
+  `pricing.momentum-uplift`, margin arithmetic in the deterministic rule
+  layer) (ADR 36).
+- **New APIs** — `/api/v1/copilot/*`, `/api/v1/reports/*`,
+  `/analytics/forecasts`; RBAC `copilot:read/ask` + `reports:read/manage`
+  seeded idempotently (ADR 35); migration `0008` (3 RLS tables,
+  `report_preferences` jsonb, enum extensions).
+- **Two web surfaces** — Copilot chat (evidence tables, method/confidence
+  badges, read-only role handling) and the Report vault (schedule card,
+  polling vault, sections drawer, PDF download, email action); both under
+  the axe WCAG 2.2 AA gate (now 7 surfaces).
+
+### Verification
+
+- 1165 workspace tests green + 4 Redis-gated skips (18 projects, +133);
+  typecheck/build clean; migration drift zero; per-package coverage gates
+  green; milestone doc `docs/architecture/M8-phase3-copilot-forecasting-reports.md`.
+
 ## [1.0.0] — 2026-08-08 — M7: App Store Readiness
 
 First production-candidate release: Shopify App Review readiness, public

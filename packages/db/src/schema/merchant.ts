@@ -72,6 +72,8 @@ export const storeSettings = pgTable(
     featureOverrides: jsonb("feature_overrides")
       .notNull()
       .default(sql`'{}'::jsonb`),
+    /** { kinds: {DAILY?, WEEKLY?, MONTHLY?, QUARTERLY?}, emailDelivery, recipientEmail? } — M8 reporting schedule (ADR 34). */
+    reportPreferences: jsonb("report_preferences").notNull().default(sql`'{}'::jsonb`),
     /** Set when the merchant finishes the onboarding wizard (P4 flow). */
     onboardingCompletedAt: timestamp("onboarding_completed_at", {
       withTimezone: true,

@@ -40,6 +40,8 @@ export interface StoreSettingsRow {
   readonly aiPreferences: Record<string, unknown>;
   readonly automationPreferences: Record<string, unknown>;
   readonly featureOverrides: Record<string, unknown>;
+  /** M8: scheduled-report schedule + delivery preferences (jsonb, ADR 34). */
+  readonly reportPreferences: ReportPreferencesDto;
   readonly onboardingCompletedAt: string | null;
 }
 
@@ -1037,4 +1039,171 @@ export interface OperatorSessionRowDto {
   readonly operatorId: string;
   readonly ip: string | null;
   readonly createdAt: string;
+}
+
+/* ── M8 Phase 3: AI copilot + enterprise reports ─────────────────────────── */
+
+export type CopilotIntentDto =
+  | "SALES_WHY_DOWN"
+  | "RESTOCK_WHAT"
+  | "VIP_CUSTOMERS"
+  | "PRODUCTS_DYING"
+  | "DISCOUNT_SUGGESTION"
+  | "REVENUE_FORECAST"
+  | "REVENUE_SUMMARY"
+  | "CHURN_RISKS"
+  | "BUSINESS_SUMMARY"
+  | "GENERAL_OTHER";
+
+export interface CopilotEvidenceTableDto {
+  readonly title: string;
+  readonly columns: readonly string[];
+  readonly rows: readonly (readonly string[])[];
+}
+
+export interface CopilotRecommendationRefDto {
+  readonly id: string;
+  readonly title: string;
+  readonly type: string;
+}
+
+export interface CopilotEvidenceDto {
+  readonly intent: CopilotIntentDto;
+  readonly matchedPattern: string | null;
+  readonly headline: string;
+  readonly bullets: readonly string[];
+  readonly tables: readonly CopilotEvidenceTableDto[];
+  readonly recommendationRefs: readonly CopilotRecommendationRefDto[];
+  readonly method: string;
+  readonly confidence: number;
+  readonly currency: string;
+  readonly windowLabel: string;
+}
+
+export interface CopilotAskResponseDto {
+  readonly conversationId: string;
+  readonly messageId: string;
+  readonly intent: CopilotIntentDto;
+  readonly answer: string;
+  readonly modelEnhanced: boolean;
+  readonly evidence: CopilotEvidenceDto;
+}
+
+export interface CopilotConversationListItemDto {
+  readonly id: string;
+  readonly title: string;
+  readonly lastMessageAt: string;
+  readonly createdAt: string;
+}
+
+export interface CopilotAssistantPayloadDto {
+  readonly headline: string;
+  readonly lead: string;
+  readonly bullets: readonly string[];
+  readonly tables: readonly CopilotEvidenceTableDto[];
+  readonly recommendationRefs: readonly CopilotRecommendationRefDto[];
+  readonly method: string;
+  readonly confidence: number;
+  readonly modelEnhanced: boolean;
+  readonly windowLabel: string;
+}
+
+export interface CopilotMessageDto {
+  readonly id: string;
+  readonly role: "MERCHANT" | "ASSISTANT";
+  readonly intent: string | null;
+  readonly content: string;
+  readonly payload: Record<string, unknown>;
+  readonly createdAt: string;
+}
+
+export interface CopilotConversationDetailDto {
+  readonly id: string;
+  readonly title: string;
+  readonly messages: readonly CopilotMessageDto[];
+}
+
+export type ReportKindDto = "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY";
+export type ReportStatusDto = "BUILDING" | "READY" | "FAILED";
+
+export interface ReportListItemDto {
+  readonly id: string;
+  readonly kind: ReportKindDto;
+  readonly status: ReportStatusDto;
+  readonly periodLabel: string;
+  readonly headline: string | null;
+  readonly executiveSummary: string | null;
+  readonly pdfSizeBytes: number | null;
+  readonly lastEmailedOn: string | null;
+  readonly createdAt: string;
+  readonly completedAt: string | null;
+  readonly errorMessage: string | null;
+}
+
+export interface ReportKpiDto {
+  readonly label: string;
+  readonly display: string;
+  readonly deltaPct?: number | null;
+}
+
+export interface ReportTableDto {
+  readonly title: string;
+  readonly columns: readonly string[];
+  readonly rows: readonly (readonly string[])[];
+}
+
+export interface ReportForecastDto {
+  readonly method: string;
+  readonly horizonDays: number;
+  readonly expectedCents: number;
+  readonly lowCents: number;
+  readonly highCents: number;
+  readonly stockoutRisks: number;
+  readonly churnRisks: number;
+}
+
+export interface ReportActionsDto {
+  readonly createdInPeriod: number;
+  readonly executedInPeriod: number;
+  readonly openPendingAtEnd: number;
+}
+
+export interface ReportSectionsDto {
+  readonly storeName: string;
+  readonly currency: string;
+  readonly kind: ReportKindDto;
+  readonly periodLabel: string;
+  readonly period: { readonly startIso: string; readonly endIsoExclusive: string };
+  readonly generatedAt: string;
+  readonly headline: string;
+  readonly kpis: readonly ReportKpiDto[];
+  readonly highlights: readonly string[];
+  readonly performance: ReportTableDto;
+  readonly topProducts: ReportTableDto | null;
+  readonly forecast: ReportForecastDto | null;
+  readonly actions: ReportActionsDto;
+}
+
+export interface ReportDetailDto extends ReportListItemDto {
+  readonly sections: ReportSectionsDto | null;
+}
+
+export interface ReportGenerateResponseDto {
+  readonly reportId: string;
+  readonly kind: ReportKindDto;
+  readonly periodLabel: string;
+  readonly status: ReportStatusDto;
+  readonly errorMessage: string | null;
+}
+
+export interface ReportEmailOutcomeDto {
+  readonly sent: boolean;
+  readonly reason: string | null;
+}
+
+/** Store settings report preferences (nested-merge PATCH shape). */
+export interface ReportPreferencesDto {
+  readonly kinds?: Partial<Record<ReportKindDto, boolean>>;
+  readonly emailDelivery?: boolean;
+  readonly recipientEmail?: string | null;
 }

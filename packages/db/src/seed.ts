@@ -47,6 +47,11 @@ export const PERMISSION_CODES = [
   "support:manage",
   "exports:read",
   "exports:manage",
+  // M8: AI copilot conversations, enterprise period reports (ADR 35)
+  "copilot:read",
+  "copilot:ask",
+  "reports:read",
+  "reports:manage",
 ] as const;
 export type PermissionCode = (typeof PERMISSION_CODES)[number];
 
@@ -84,6 +89,10 @@ const ROLE_MATRIX: Readonly<Record<UserRole, readonly PermissionCode[]>> = {
     "support:manage",
     "exports:read",
     "exports:manage",
+    "copilot:read",
+    "copilot:ask",
+    "reports:read",
+    "reports:manage",
   ],
   STAFF: [
     "store:read",
@@ -98,6 +107,9 @@ const ROLE_MATRIX: Readonly<Record<UserRole, readonly PermissionCode[]>> = {
     "support:read",
     "support:manage",
     "exports:read",
+    "copilot:read",
+    "copilot:ask",
+    "reports:read",
   ],
   ANALYST: [
     "store:read",
@@ -113,6 +125,8 @@ const ROLE_MATRIX: Readonly<Record<UserRole, readonly PermissionCode[]>> = {
     "exports:manage",
     "support:read",
     "support:manage",
+    "copilot:read",
+    "reports:read",
   ],
   SUPPORT: [
     "store:read",
