@@ -13,7 +13,10 @@ import type {
   AccessReviewResponseDto,
   AdminActionRowDto,
   AdminAiUsageRow,
+  AdminFeatureFlagsResponse,
   AdminMerchantRow,
+  AdminOpsFlagsResponse,
+  AdminOpsJobsResponse,
   AdminOverviewResponse,
   AdminSessionResponse,
   AdminTicketReplyResponse,
@@ -203,11 +206,11 @@ export async function openAdminSession(
   });
 }
 
-async function adminPost<TData>(key: string, sessionToken: string, path: string, body?: unknown): Promise<TData> {
+async function adminSend<TData>(method: "POST" | "PATCH", key: string, sessionToken: string, path: string, body?: unknown): Promise<TData> {
   let response: Response;
   try {
     response = await fetch(`${API}${path}`, {
-      method: "POST",
+      method,
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
@@ -418,6 +421,85 @@ export function useRevokeOverrideMutation(
       adminPost<AccessOverrideRowDto>(adminKey, requireSession(session).token, `/merchants/${storeId}/access-overrides/${overrideId}/revoke`, { reason }),
     onSuccess: (_row, { storeId }) => {
       void queryClient.invalidateQueries({ queryKey: ADMIN_QK.overrides(storeId) });
+      void queryClient.invalidateQueries({ queryKey: ["admin", "actions"] });
+    },
+  });
+}
+
+/* ── Launch readiness: ops control plane (ADR 37) ──────────────────────────
+ * Maintenance mode is the ONLY platform-scope write; per-merchant feature
+ * flags and the job-queue view ride the same key/session trust boundary.
+ */
+
+function adminPost<TData>(key: string, sessionToken: string, path: string, body?: unknown): Promise<TData> {
+  return adminSend<TData>("POST", key, sessionToken, path, body);
+}
+
+function adminPatch<TData>(key: string, sessionToken: string, path: string, body?: unknown): Promise<TData> {
+  return adminSend<TData>("PATCH", key, sessionToken, path, body);
+}
+
+export function useAdminOpsFlagsQuery(
+  options: UseAdminQueryOptions,
+): UseQueryResult<AdminOpsFlagsResponse, ApiError> {
+  return useAdminQuery<AdminOpsFlagsResponse>(options.adminKey, ADMIN_QK.opsFlags, "/ops/flags");
+}
+
+export function useAdminOpsJobsQuery(
+  options: UseAdminQueryOptions,
+): UseQueryResult<AdminOpsJobsResponse, ApiError> {
+  return useAdminQuery<AdminOpsJobsResponse>(options.adminKey, ADMIN_QK.opsJobs, "/ops/jobs");
+}
+
+export function useAdminFeatureFlagsQuery(
+  options: UseAdminQueryOptions,
+  storeId: string | null,
+): UseQueryResult<AdminFeatureFlagsResponse, ApiError> {
+  return useAdminQuery<AdminFeatureFlagsResponse>(
+    storeId === null ? null : options.adminKey,
+    ADMIN_QK.featureFlags(storeId ?? "∅"),
+    storeId === null ? "/ops/flags" : `/merchants/${storeId}/feature-flags`,
+    undefined,
+    storeId !== null,
+  );
+}
+
+export interface SetMaintenanceInput {
+  readonly enabled: boolean;
+  readonly message: string | null;
+  readonly reason: string;
+}
+
+export function useSetMaintenanceMutation(
+  adminKey: string,
+  session: AdminSession | null,
+): UseMutationResult<AdminOpsFlagsResponse, ApiError, SetMaintenanceInput> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input) => adminPatch<AdminOpsFlagsResponse>(adminKey, requireSession(session).token, "/ops/maintenance", input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ADMIN_QK.opsFlags });
+      void queryClient.invalidateQueries({ queryKey: ["admin", "actions"] });
+    },
+  });
+}
+
+export interface SetFeatureFlagsInput {
+  readonly storeId: string;
+  readonly flags: { readonly aiDisabled?: boolean; readonly automationDisabled?: boolean };
+  readonly reason: string;
+}
+
+export function useSetFeatureFlagsMutation(
+  adminKey: string,
+  session: AdminSession | null,
+): UseMutationResult<AdminFeatureFlagsResponse, ApiError, SetFeatureFlagsInput> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ storeId, flags, reason }) =>
+      adminPatch<AdminFeatureFlagsResponse>(adminKey, requireSession(session).token, `/merchants/${storeId}/feature-flags`, { flags, reason }),
+    onSuccess: (_outcome, { storeId }) => {
+      void queryClient.invalidateQueries({ queryKey: ADMIN_QK.featureFlags(storeId) });
       void queryClient.invalidateQueries({ queryKey: ["admin", "actions"] });
     },
   });

@@ -4,7 +4,7 @@ import type { ProfitDb } from "@profit/db";
 import { WorkflowRunStartJob, WorkflowService } from "@profit/automation";
 import { EngagementService } from "@profit/billing";
 import type { JobPersistence, JobQueue } from "@profit/queue";
-import { EngagementEventKind, WorkflowTriggerKind } from "@profit/types";
+import { EngagementEventKind, FeatureFlag, WorkflowTriggerKind } from "@profit/types";
 import type { Logger } from "@profit/logger";
 import { z } from "zod";
 import { getRequestContext } from "../../lib/context/request-context";
@@ -16,6 +16,7 @@ import {
   requireAppAuth,
   requirePermission,
 } from "../../middleware/auth.middleware";
+import { requireFeature } from "../../middleware/feature-flags.middleware";
 import type { JwtService } from "../auth/jwt.service";
 import type { AuditService } from "../audit/audit.service";
 import { passThroughAutomationError } from "./api-errors";
@@ -67,7 +68,7 @@ export function workflowsRouter(deps: {
     }
   });
 
-  router.post("/", requirePermission("automation:manage"), async (req, res, next) => {
+  router.post("/", requireFeature(deps.db, FeatureFlag.AutomationDisabled), requirePermission("automation:manage"), async (req, res, next) => {
     try {
       if (req.appAuth === undefined) throw new ForbiddenError("auth context missing");
       const body = createSchema.parse(req.body);
@@ -110,7 +111,7 @@ export function workflowsRouter(deps: {
     }
   });
 
-  router.put("/:workflowId", requirePermission("automation:manage"), async (req, res, next) => {
+  router.put("/:workflowId", requireFeature(deps.db, FeatureFlag.AutomationDisabled), requirePermission("automation:manage"), async (req, res, next) => {
     try {
       if (req.appAuth === undefined) throw new ForbiddenError("auth context missing");
       const workflowId = req.params["workflowId"]!;
@@ -151,7 +152,7 @@ export function workflowsRouter(deps: {
   });
 
   /** Activate a saved version (defaults to the newest). arms the schedule. */
-  router.post("/:workflowId/activate", requirePermission("automation:manage"), async (req, res, next) => {
+  router.post("/:workflowId/activate", requireFeature(deps.db, FeatureFlag.AutomationDisabled), requirePermission("automation:manage"), async (req, res, next) => {
     try {
       if (req.appAuth === undefined) throw new ForbiddenError("auth context missing");
       const workflowId = req.params["workflowId"]!;
@@ -187,7 +188,7 @@ export function workflowsRouter(deps: {
     }
   });
 
-  router.post("/:workflowId/pause", requirePermission("automation:manage"), async (req, res, next) => {
+  router.post("/:workflowId/pause", requireFeature(deps.db, FeatureFlag.AutomationDisabled), requirePermission("automation:manage"), async (req, res, next) => {
     try {
       if (req.appAuth === undefined) throw new ForbiddenError("auth context missing");
       const workflowId = req.params["workflowId"]!;
@@ -207,7 +208,7 @@ export function workflowsRouter(deps: {
     }
   });
 
-  router.post("/:workflowId/archive", requirePermission("automation:manage"), async (req, res, next) => {
+  router.post("/:workflowId/archive", requireFeature(deps.db, FeatureFlag.AutomationDisabled), requirePermission("automation:manage"), async (req, res, next) => {
     try {
       if (req.appAuth === undefined) throw new ForbiddenError("auth context missing");
       const workflowId = req.params["workflowId"]!;
@@ -228,7 +229,7 @@ export function workflowsRouter(deps: {
   });
 
   /** Manual run: fresh triggerEventId per click → unique run row per deliberate click. */
-  router.post("/:workflowId/run", requirePermission("automation:manage"), async (req, res, next) => {
+  router.post("/:workflowId/run", requireFeature(deps.db, FeatureFlag.AutomationDisabled), requirePermission("automation:manage"), async (req, res, next) => {
     try {
       if (req.appAuth === undefined) throw new ForbiddenError("auth context missing");
       const workflowId = req.params["workflowId"]!;

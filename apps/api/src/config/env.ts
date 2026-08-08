@@ -16,7 +16,7 @@ const envSchema = z
     NODE_ENV: z.nativeEnum(Environment).default(Environment.Development),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     APP_URL: z.string().url().default("http://localhost:3000"),
-    APP_VERSION: z.string().min(1).default("1.1.0"),
+    APP_VERSION: z.string().min(1).default("1.1.1"),
 
     DATABASE_URL: optionalSecret,
     REDIS_URL: optionalSecret,
@@ -80,8 +80,9 @@ const envSchema = z
     SMTP_PASSWORD: optionalSecret,
     EMAIL_FROM: z.string().email().default("noreply@profittool.ai"),
 
-    WEBHOOK_SECRET: optionalSecret,
-
+    // ADR 39: Shopify webhook HMAC verifies against SHOPIFY_API_SECRET — the
+    // PRD's generic WEBHOOK_SECRET was dead config and is removed (one HMAC
+    // source of truth, nothing unused left to drift).
     SENTRY_DSN: optionalSecret,
     LOG_LEVEL: z
       .enum(["fatal", "error", "warn", "info", "debug", "trace"])

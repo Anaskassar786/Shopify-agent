@@ -18,6 +18,7 @@ import {
   ActionType,
   AiRunTrigger,
   EngagementEventKind,
+  FeatureFlag,
   Priority,
   RecommendationStatus,
   UsageMeter,
@@ -31,6 +32,7 @@ import {
   requireAppAuth,
   requirePermission,
 } from "../../middleware/auth.middleware";
+import { requireFeature } from "../../middleware/feature-flags.middleware";
 import type { JwtService } from "../auth/jwt.service";
 import type { AuditService } from "../audit/audit.service";
 import type { Logger } from "@profit/logger";
@@ -190,36 +192,41 @@ export function recommendationsRouter(deps: {
    * Manual engine run (P10: scheduled + manual triggers). Per-minute bucket
    * jobId — double-clicking the button can never double-charge the provider.
    */
-  router.post("/run", requirePermission("recommendations:approve"), async (req, res, next) => {
-    try {
-      if (req.appAuth === undefined) throw new Error("auth context missing after guard");
-      // M5 gate: a manual run plans paid model calls — subscription + quota first.
-      await assertEntitled(billing, req.appAuth.storeId, UsageMeter.AiCalls);
-      const minuteBucket = Math.floor(Date.now() / 60_000);
-      const jobId = await deps.persistence.enqueuePersistent(
-        deps.queue,
-        AiRunJob,
-        {
+  router.post(
+    "/run",
+    requireFeature(deps.db, FeatureFlag.AiDisabled),
+    requirePermission("recommendations:approve"),
+    async (req, res, next) => {
+      try {
+        if (req.appAuth === undefined) throw new Error("auth context missing after guard");
+        // M5 gate: a manual run plans paid model calls — subscription + quota first.
+        await assertEntitled(billing, req.appAuth.storeId, UsageMeter.AiCalls);
+        const minuteBucket = Math.floor(Date.now() / 60_000);
+        const jobId = await deps.persistence.enqueuePersistent(
+          deps.queue,
+          AiRunJob,
+          {
+            storeId: req.appAuth.storeId,
+            trigger: AiRunTrigger.Manual,
+            requestedByUserId: req.appAuth.userId,
+          },
+          { jobId: `ai:manual:${req.appAuth.storeId}:${minuteBucket}` },
+        );
+        await deps.audit.record({
           storeId: req.appAuth.storeId,
-          trigger: AiRunTrigger.Manual,
-          requestedByUserId: req.appAuth.userId,
-        },
-        { jobId: `ai:manual:${req.appAuth.storeId}:${minuteBucket}` },
-      );
-      await deps.audit.record({
-        storeId: req.appAuth.storeId,
-        userId: req.appAuth.userId,
-        action: "ai.run.requested",
-        entityType: "ai_run",
-        entityId: jobId,
-        result: "SUCCESS",
-        metadata: { trigger: AiRunTrigger.Manual },
-      });
-      res.status(202).json(successEnvelope(getRequestContext(), { jobId }));
-    } catch (error) {
-      next(error);
-    }
-  });
+          userId: req.appAuth.userId,
+          action: "ai.run.requested",
+          entityType: "ai_run",
+          entityId: jobId,
+          result: "SUCCESS",
+          metadata: { trigger: AiRunTrigger.Manual },
+        });
+        res.status(202).json(successEnvelope(getRequestContext(), { jobId }));
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   return router;
 }

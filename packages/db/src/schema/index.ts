@@ -14,4 +14,5 @@ export * from "./audit";
 export * from "./notifications";
 export * from "./jobs";
 export * from "./automation";
+export * from "./ops";
 export * from "./phase3";

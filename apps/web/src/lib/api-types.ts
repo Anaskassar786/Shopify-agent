@@ -627,6 +627,45 @@ export interface AdminOverviewResponse {
   readonly funnel: readonly FunnelStepRow[];
 }
 
+/* ── Launch readiness: ops control plane (ADR 37) ────────────────────────── */
+
+/** Maintenance state as recorded in the platform_flags kv (null = never set). */
+export interface AdminMaintenanceStateDto {
+  readonly enabled: boolean;
+  readonly message: string | null;
+  readonly setAt: string;
+  readonly setBy: string;
+}
+
+export interface AdminOpsFlagsResponse {
+  readonly maintenance: AdminMaintenanceStateDto | null;
+}
+
+/** Wire parity with GET /admin/merchants/:storeId/feature-flags — only taxonomy keys ever appear. */
+export interface AdminFeatureFlagsResponse {
+  readonly storeId: string;
+  readonly flags: Readonly<Record<string, boolean>>;
+}
+
+/** One queue's durable-mirror counts (retries visible via attempts). */
+export interface AdminOpsQueueRow {
+  readonly queue: string;
+  readonly queued: number;
+  readonly running: number;
+  readonly failed: number;
+  readonly attempts: number;
+}
+
+export interface AdminOpsJobsResponse {
+  /** Every JobStatus value is present (zero-filled), so panels never guess. */
+  readonly byStatus: Readonly<Record<string, number>>;
+  readonly failedLast24h: number;
+  readonly deadLettered: number;
+  readonly byQueue: readonly AdminOpsQueueRow[];
+  readonly latestActivityAt: string | null;
+  readonly sampledAt: string;
+}
+
 export interface AdminMerchantRow {
   readonly storeId: string;
   readonly shopDomain: string;

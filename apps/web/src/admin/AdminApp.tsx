@@ -10,6 +10,7 @@ import { AdminTicketsView } from "./AdminTicketsView";
 import { AdminActionsView } from "./AdminActionsView";
 import { AdminAccessReviewView } from "./AdminAccessReviewView";
 import { AdminAccountActionsView } from "./AdminAccountActionsView";
+import { AdminOpsView } from "./AdminOpsView";
 import { openAdminSession } from "../lib/admin-queries";
 import {
   clearAdminSession,
@@ -271,6 +272,7 @@ function AdminShell({
           <Route index element={<Navigate to="/admin/overview" replace />} />
           <Route path="/admin/overview" element={<AdminOverviewView adminKey={adminKey} />} />
           <Route path="/admin/merchants" element={<AdminMerchantsView adminKey={adminKey} />} />
+          <Route path="/admin/ops" element={<AdminOpsView adminKey={adminKey} session={session} />} />
           <Route path="/admin/ai-usage" element={<AdminAiUsageView adminKey={adminKey} />} />
           <Route path="/admin/tickets" element={<AdminTicketsView adminKey={adminKey} session={session} />} />
           <Route path="/admin/account-actions" element={<AdminAccountActionsView adminKey={adminKey} session={session} />} />

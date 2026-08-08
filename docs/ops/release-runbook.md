@@ -39,11 +39,16 @@ pair `SUPPORT_EMAIL` + `LEGAL_ENTITY_NAME`.
    `APP_URL=https://<prod-host> pnpm --filter @profit/api run manifest:render -- --out shopify.app.toml`
    then `shopify app deploy --client-id <partner-app>` (ADR 30; credentials
    live in the Partner Dashboard, never in the repo).
-4. Smoke: `GET /live` → 200, `GET /ready` → `ready` (database +
-   cache/queue + AI provider checks in the payload; a `skipped` AI check is
-   expected when `GEMINI_API_KEY` is intentionally unset and never gates),
+4. Smoke: `GET /live` → 200, `GET /ready` → `ready` (four checks in the
+   payload: `database` + `cache_queue` live probes, `ai_provider` + `shopify`
+   configuration truth; a `skipped` configuration check is expected when the
+   capability is intentionally unconfigured and never gates),
    `GET /legal/privacy` → 200 HTML with the configured entity + support email,
    embedded boot in a dev store admin.
+5. Ops plane smoke (1.1.1): `GET /api/v1/admin/ops/flags` →
+   `{"maintenance": null}` (or the live state), `GET /api/v1/admin/ops/jobs`
+   → all five status buckets present; confirm `SENTRY_DSN` is set if error
+   capture is desired (absent = documented no-op).
 
 ## Rollback
 

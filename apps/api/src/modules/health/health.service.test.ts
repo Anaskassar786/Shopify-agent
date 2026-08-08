@@ -91,4 +91,23 @@ describe("HealthService.readiness", () => {
     // A config check never gates readiness alone — degraded features surface elsewhere.
     expect(reportBare.ready).toBe(true);
   });
+
+  /* ── Launch readiness: Shopify app-credentials readiness signal (P5) ──── */
+
+  it("reports Shopify credentials as configuration truth: configured ok, unconfigured skipped", async () => {
+    const configured = new HealthService({ version: "0.0.1", shopifyConfigured: true });
+    const reportOk = await configured.readiness();
+    expect(reportOk.checks.find((c) => c.name === "shopify")).toMatchObject({
+      status: HealthStatus.Ok,
+      reason: "configured",
+    });
+
+    const bare = new HealthService({ version: "0.0.1" });
+    const reportBare = await bare.readiness();
+    expect(reportBare.checks.find((c) => c.name === "shopify")).toMatchObject({
+      status: "skipped",
+      reason: "Shopify app credentials not configured",
+    });
+    expect(reportBare.ready).toBe(true);
+  });
 });

@@ -22,7 +22,14 @@ const VALID_OPERATOR = "ravi@profit";
 /** Admin merchant shape mirrored from fixtures (ADMIN_MERCHANTS[0]). */
 const FIRST_STORE_ID = ADMIN_MERCHANTS[0]!.storeId;
 
+/** Launch readiness ops state — the stub behaves like the real kv/jsonb rows. */
+interface OpsStubState {
+  maintenance: { enabled: boolean; message: string | null; setAt: string; setBy: string } | null;
+  flags: Record<string, boolean>;
+}
+
 function makeFetchStub(accessOverrides: () => readonly unknown[] = () => []): ReturnType<typeof vi.fn> {
+  const opsState: OpsStubState = { maintenance: null, flags: {} };
   return vi.fn(async (input: unknown, init?: RequestInit) => {
     const url = String(input);
     const headers = (init?.headers ?? {}) as Record<string, string>;
@@ -34,6 +41,29 @@ function makeFetchStub(accessOverrides: () => readonly unknown[] = () => []): Re
       });
     }
     if (url.startsWith("/api/v1/admin/overview")) return jsonEnvelope(200, envelope(adminOverviewFixture()));
+    if (url === "/api/v1/admin/ops/flags") return jsonEnvelope(200, envelope({ maintenance: opsState.maintenance }));
+    if (url === "/api/v1/admin/ops/maintenance") {
+      const body = JSON.parse(String(init?.body)) as { enabled: boolean; message: string | null; reason: string };
+      opsState.maintenance = { enabled: body.enabled, message: body.message, setAt: "2026-08-08T10:00:00.000Z", setBy: VALID_OPERATOR };
+      return jsonEnvelope(200, envelope({ maintenance: opsState.maintenance }));
+    }
+    if (url === "/api/v1/admin/ops/jobs") {
+      return jsonEnvelope(200, envelope({
+        byStatus: { QUEUED: 2, RUNNING: 1, COMPLETED: 48, FAILED: 1, DEAD_LETTERED: 2 },
+        failedLast24h: 1,
+        deadLettered: 2,
+        byQueue: [{ queue: "ai", queued: 2, running: 1, failed: 1, attempts: 57 }],
+        latestActivityAt: "2026-08-08T09:58:00.000Z",
+        sampledAt: "2026-08-08T10:00:00.000Z",
+      }));
+    }
+    if (url.startsWith("/api/v1/admin/merchants") && url.includes("/feature-flags")) {
+      if (init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body)) as { flags: Record<string, boolean>; reason: string };
+        opsState.flags = { ...opsState.flags, ...body.flags };
+      }
+      return jsonEnvelope(200, envelope({ storeId: FIRST_STORE_ID, flags: opsState.flags }));
+    }
     if (url.startsWith("/api/v1/admin/merchants") && url.includes("trial-extension")) {
       return jsonEnvelope(200, envelope({ id: "sub-1", storeId: FIRST_STORE_ID, planId: "p1", status: "TRIALING", shopifyChargeId: null, billingInterval: null, trialEndsAt: "2026-08-25T00:00:00.000Z", currentPeriodStart: null, currentPeriodEnd: null, graceEndsAt: null, cancelledAt: null }));
     }
@@ -461,6 +491,76 @@ describe("AdminApp (M6): step-up session gates every write", () => {
     expect(screen.getByText("POS weekend bridge")).toBeInTheDocument();
     // Store-bound operator writes.
     expect(screen.getByText("platform.admin.trial.extend")).toBeInTheDocument();
+  });
+
+  it("ops controls: maintenance engage patches with the session header and the panel reflects the kv state", async () => {
+    const stub = makeFetchStub();
+    vi.stubGlobal("fetch", stub);
+    renderAdmin();
+    await unlock();
+    await unlockWrites(stub);
+
+    fireEvent.click(screen.getByRole("link", { name: "Ops" }));
+    // Default kv state: never engaged; the write controls stay blocked until a reason exists.
+    expect(await screen.findByText("NEVER ENGAGED")).toBeInTheDocument();
+    const engage = screen.getByRole("button", { name: /engage maintenance/i });
+    expect(engage).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("Maintenance message"), { target: { value: "Upgrading the data plane" } });
+    fireEvent.change(screen.getByLabelText("Maintenance reason"), { target: { value: "migration 0009 deploy" } });
+    fireEvent.click(engage);
+    fireEvent.click(await screen.findByRole("button", { name: /confirm, operator/i }));
+
+    await waitFor(() => {
+      const call = stub.mock.calls.find((c) => String(c[0]) === "/api/v1/admin/ops/maintenance");
+      expect(call).toBeDefined();
+      const [, init] = call!;
+      expect(init?.method).toBe("PATCH");
+      expect((init?.headers as Record<string, string>)["X-Admin-Session"]).toBe(SESSION_TOKEN);
+      expect(JSON.parse(String(init?.body))).toEqual({
+        enabled: true,
+        message: "Upgrading the data plane",
+        reason: "migration 0009 deploy",
+      });
+    });
+    // The flags query invalidated → the panel re-reads and shows the engaged state.
+    expect(await screen.findByText("MAINTENANCE ON")).toBeInTheDocument();
+    expect(screen.getByText(/last set by ravi@profit/)).toBeInTheDocument();
+
+    // Job-queue readout: every status bucket + the durable mirror table.
+    expect(screen.getByText("Completed: 48")).toBeInTheDocument();
+    expect(screen.getByText("Dead-lettered: 2")).toBeInTheDocument();
+    expect(screen.getByText(/dead-lettered total: 2/)).toBeInTheDocument();
+  });
+
+  it("ops controls: per-merchant feature flags save merges taxonomy keys with the session header", async () => {
+    const stub = makeFetchStub();
+    vi.stubGlobal("fetch", stub);
+    renderAdmin();
+    await unlock();
+    await unlockWrites(stub);
+
+    fireEvent.click(screen.getByRole("link", { name: "Ops" }));
+    fireEvent.change(await screen.findByLabelText("Store for feature flags"), { target: { value: FIRST_STORE_ID } });
+    fireEvent.click(screen.getByLabelText("Disable AI features for this store"));
+    fireEvent.change(screen.getByLabelText("Feature flag reason"), { target: { value: "provider incident containment" } });
+    // Saving is honestly blocked while the store's flags load (never merge
+    // over unread state) — wait for the load like a real operator would.
+    await waitFor(() => expect(screen.getByRole("button", { name: /save flags/i })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /save flags/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /confirm, operator/i }));
+
+    await waitFor(() => {
+      const call = stub.mock.calls.find((c) => String(c[0]).includes(`/api/v1/admin/merchants/${FIRST_STORE_ID}/feature-flags`) && c[1]?.method === "PATCH");
+      expect(call).toBeDefined();
+      const [, init] = call!;
+      expect((init?.headers as Record<string, string>)["X-Admin-Session"]).toBe(SESSION_TOKEN);
+      expect(JSON.parse(String(init?.body))).toEqual({
+        flags: { aiDisabled: true, automationDisabled: false },
+        reason: "provider incident containment",
+      });
+    });
+    expect(await screen.findByText("Feature flags updated")).toBeInTheDocument();
   });
 
   it("a stale/expired stored session is dropped on boot (still gated)", async () => {

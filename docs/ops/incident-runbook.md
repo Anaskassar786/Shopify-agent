@@ -6,9 +6,18 @@ review. Uses only surfaces that exist in the codebase today.
 ## Detection sources
 
 - **Health probes**: `/live` (liveness, version + uptime) and `/ready`
-  (component checks: `database`, `cache_queue`, `ai_provider`; the AI check
-  reports `skipped` when unconfigured and never hard-gates). Wire these to
-  the platform's monitoring (Railway health checks / uptime probe).
+  (component checks: `database`, `cache_queue`, `ai_provider`, `shopify`;
+  the configuration checks report `skipped` when unconfigured and never
+  hard-gate; the connectivity probes do). Wire these to the platform's
+  monitoring (Railway health checks / uptime probe).
+- **Error capture (ADR 38, 1.1.1)**: when `SENTRY_DSN` is set, every 5xx and
+  process-level exception lands in Sentry (`packages/monitoring` real
+  adapter); without it the structured pino logs remain the channel by
+  documented design.
+- **Job queue ops view (1.1.1)**: `GET /api/v1/admin/ops/jobs` reads the
+  durable `background_jobs` mirror (queued/running/completed/failed/retries/
+  DLQ per queue) — truthful even with Redis down; also rendered in the admin
+  console's Ops tab.
 - **Dead letters**: `failed_jobs` growth — every unhandled job, all retries
   exhausted, lands here with error + stack. The load suite asserts zero DLQ
   rows on the happy path; any growth is signal, not noise.
@@ -42,6 +51,17 @@ review. Uses only surfaces that exist in the codebase today.
   billing without provider, tracking without secret, admin without key —
   instead of taking the whole app down. This is by design; don't paper over
   it.
+- **Maintenance mode (ADR 37, 1.1.1)**: `PATCH /api/v1/admin/ops/maintenance`
+  (step-up) pauses the merchant data-plane on the NEXT request — typed 503
+  `MAINTENANCE_MODE` with the operator message, merchant UI shows a calm
+  surface, and webhooks/session-boot/legal/OAuth/admin stay up. Use it for
+  risky migrations and platform-level incidents; lifting is the same write.
+- **Per-merchant containment (ADR 37, 1.1.1)**:
+  `PATCH /api/v1/admin/merchants/:storeId/feature-flags` — `aiDisabled`
+  stops provider-crossing writes (manual runs + copilot asks),
+  `automationDisabled` stops workflow mutations AND new run-starts at the
+  worker funnel (in-flight runs finish; the schedule cursor still advances
+  honestly). Reads never gate: a contained store loses no visibility.
 
 ## Evidence & review
 

@@ -217,6 +217,20 @@ function adminFetchStub(): ReturnType<typeof vi.fn> {
       );
     }
     if (url.startsWith("/api/v1/admin/overview")) return respond(200, adminOverviewFixture());
+    if (url === "/api/v1/admin/ops/flags") return respond(200, { maintenance: null });
+    if (url === "/api/v1/admin/ops/jobs") {
+      return respond(200, {
+        byStatus: { QUEUED: 0, RUNNING: 0, COMPLETED: 3, FAILED: 0, DEAD_LETTERED: 0 },
+        failedLast24h: 0,
+        deadLettered: 0,
+        byQueue: [{ queue: "ai", queued: 0, running: 0, failed: 0, attempts: 3 }],
+        latestActivityAt: "2026-08-08T09:58:00.000Z",
+        sampledAt: "2026-08-08T10:00:00.000Z",
+      });
+    }
+    if (url.startsWith("/api/v1/admin/merchants") && url.includes("/feature-flags")) {
+      return respond(200, { storeId: ADMIN_MERCHANTS[0]!.storeId, flags: {} });
+    }
     if (url.startsWith("/api/v1/admin/merchants")) return respond(200, ADMIN_MERCHANTS);
     if (url.startsWith("/api/v1/admin/access-review/sessions")) return respond(200, []);
     if (url.startsWith("/api/v1/admin/access-review")) return respond(200, A11Y_REVIEW);
@@ -259,5 +273,46 @@ describe("axe WCAG 2.2 AA — operator console (access review)", () => {
     await screen.findByText("Write-authority grants");
 
     await expectNoViolations(document.body, "AdminApp /admin/access-review");
+  });
+
+  it("Ops control plane (maintenance + flags + jobs) has no violations", async () => {
+    vi.stubGlobal("fetch", adminFetchStub());
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: 0, refetchOnWindowFocus: false },
+        mutations: { retry: false },
+      },
+    });
+    const tree: ReactNode = (
+      <ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <ToastProvider>
+            <MemoryRouter initialEntries={["/admin"]}>
+              <AdminApp />
+            </MemoryRouter>
+          </ToastProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
+    );
+    rtlRender(tree);
+
+    fireEvent.change(screen.getByLabelText(/platform admin key/i), { target: { value: "a11y-key" } });
+    fireEvent.click(screen.getByRole("button", { name: /unlock console/i }));
+    await screen.findByText("Platform overview");
+
+    fireEvent.click(screen.getByRole("link", { name: "Ops" }));
+    await screen.findByText("Maintenance mode");
+    await screen.findByText("Per-merchant feature flags");
+    // Fully settle the jobs readout + the flag editor form before auditing:
+    // the save control is honestly disabled without a step-up session and a
+    // reason — the audit target is the rendered form, not the write gate.
+    await screen.findByText(/dead-lettered total/);
+    fireEvent.change(screen.getByLabelText("Store for feature flags"), {
+      target: { value: ADMIN_MERCHANTS[0]!.storeId },
+    });
+    await screen.findByLabelText("Disable AI features for this store");
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+
+    await expectNoViolations(document.body, "AdminApp /admin/ops");
   });
 });

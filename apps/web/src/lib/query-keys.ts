@@ -52,6 +52,10 @@ export const ADMIN_QK = {
   /** M7 SOC-2-lite access review. */
   review: (storeId: string) => ["admin", "access-review", storeId] as const,
   reviewSessions: ["admin", "access-review", "sessions"] as const,
+  /** Launch readiness: ops control plane (ADR 37). */
+  opsFlags: ["admin", "ops", "flags"] as const,
+  opsJobs: ["admin", "ops", "jobs"] as const,
+  featureFlags: (storeId: string) => ["admin", "ops", "feature-flags", storeId] as const,
 };
 
 /** M6 Automation Center keys (tenant-scoped merchant app). */

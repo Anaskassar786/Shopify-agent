@@ -1,6 +1,12 @@
-import { Router, type Router as ExpressRouter } from "express";
+import { Router, type RequestHandler, type Router as ExpressRouter } from "express";
 
 export interface ApiV1Routers {
+  /**
+   * Launch readiness (ADR 37): mounted AFTER auth/admin/tracking (the exempt
+   * set) and BEFORE every merchant data-plane router. In degraded-M0 mode a
+   * pass-through handler takes its place so wiring never depends on flags.
+   */
+  readonly maintenanceGuard: RequestHandler;
   readonly auth: ExpressRouter;
   readonly store: ExpressRouter;
   readonly sync: ExpressRouter;
@@ -44,7 +50,12 @@ export interface ApiV1Routers {
  */
 export function createApiV1Router(modules: ApiV1Routers): ExpressRouter {
   const router = Router();
+  // Maintenance-exempt by contract (ADR 37): session boot, operator bypass,
+  // and the public tracking links already live in sent emails.
   router.use("/auth", modules.auth);
+  router.use("/admin", modules.admin);
+  router.use("/t", modules.tracking);
+  router.use(modules.maintenanceGuard);
   router.use("/store", modules.store);
   router.use("/sync", modules.sync);
   router.use("/analytics", modules.analytics);
@@ -61,12 +72,10 @@ export function createApiV1Router(modules: ApiV1Routers): ExpressRouter {
   router.use("/automation", modules.automation);
   router.use("/billing", modules.billing);
   router.use("/engagement", modules.engagement);
-  router.use("/admin", modules.admin);
   router.use("/workflows", modules.workflows);
   router.use("/campaigns", modules.campaigns);
   router.use("/exports", modules.exports);
   router.use("/support", modules.support);
-  router.use("/t", modules.tracking);
   router.use("/copilot", modules.copilot);
   router.use("/reports", modules.reports);
   return router;

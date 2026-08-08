@@ -13,6 +13,10 @@ const schema = z.object({
     .enum([Environment.Development, Environment.Test, Environment.Staging, Environment.Production])
     .default(Environment.Development),
   PORT: z.coerce.number().int().min(1).max(65535).default(3100),
+  /** Release stamp reported to the error monitor (same APP_VERSION as the API). */
+  APP_VERSION: z.string().min(1).default("1.1.1"),
+  /** ADR 38: absent SENTRY_DSN = NoopErrorMonitor (structured logs stay the truth). */
+  SENTRY_DSN: z.string().min(1).optional(),
   DATABASE_URL: z.string().min(1).optional(),
   REDIS_URL: z.string().min(1).optional(),
   ENCRYPTION_KEY: z.string().min(1).optional(),

@@ -4,6 +4,80 @@ All notable changes to PROFIT TOOL AI. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 milestone-scoped releases (one commit per milestone — see git history).
 
+## [1.1.1] — 2026-08-08 — Launch readiness (hardening)
+
+Production-preparation pass over the shipped M0–M8 surface. No merchant-facing
+features, no roadmap movement — operational controls, monitoring truth,
+readiness completeness, dead-config retirement, and the missing runbooks.
+Architecture decisions: ADR 37 (ops control plane), ADR 38 (error capture),
+ADR 39 (webhook-secret consolidation).
+
+### Added
+
+- **Maintenance mode** — `platform_flags` kv table (migration `0009`),
+  `PATCH /api/v1/admin/ops/maintenance` (step-up session + mandatory reason,
+  `platform_admin_actions` ledger row), `GET /ops/flags`. Merchant
+  data-plane 503s typed `MAINTENANCE_MODE` with the operator message (or a
+  platform default) on the next request; health, `/legal/*`, Shopify
+  webhooks + OAuth, session boot (`/api/v1/auth`), tracking links
+  (`/api/v1/t`) and `/api/v1/admin` stay up by construction. The merchant
+  web shell renders a calm EmptyState ("We'll be right back" + Check again)
+  instead of an alarm.
+- **Per-merchant feature flags** — the existing
+  `store_settings.featureOverrides` jsonb gains real evaluation points
+  (closed two-flag taxonomy in `@profit/types`, reader in `@profit/db`):
+  - `aiDisabled` → 503 `FEATURE_DISABLED` on `POST /recommendations/run`
+    and `POST /copilot/ask`;
+  - `automationDisabled` → 503 on every workflow mutation AND on the
+    worker run-start funnel (schedule/manual/webhook converge in
+    `workflowRunStartHandler`; in-flight runs finish, the schedule cursor
+    still CAS-advances).
+  - reads are never gated — a disabled feature hides no merchant data.
+  Admin API: `GET/PATCH /api/v1/admin/merchants/:storeId/feature-flags`
+  (write step-up-gated + audited).
+- **Job-queue ops view** — `GET /api/v1/admin/ops/jobs`: zero-filled status
+  buckets, per-queue queued/running/failed + attempts (retries),
+  failed-last-24h, DLQ count, latest activity — read from the durable
+  `background_jobs`/`failed_jobs` mirror, correct with Redis down.
+- **Admin console Ops tab** — maintenance card (state badge, provenance,
+  message editor, reason, confirm-with-operator modal), per-store feature
+  flag editor (merge-safe: save blocked while the store's flags load), and
+  the job-queue readout.
+- **`@profit/monitoring`** (19th package) — `ErrorMonitor` port +
+  `NoopErrorMonitor` + `SentryErrorMonitor`: hand-rolled Sentry envelope
+  POST over fetch (DSN-derived ingest URL, `X-Sentry-Auth`, V8→Sentry
+  stack frames, 1.5s timeout, zero new runtime dependencies, failures
+  swallowed to logs). Wired at both bootstraps (`unhandledRejection`,
+  `uncaughtException`) and the express error handler's ≥500 path with
+  request/store/user context. Absent `SENTRY_DSN` = documented no-op;
+  structured pino logs remain the truth.
+- **Readiness: Shopify configuration check** — `/ready` now reports
+  `shopify` (ok/skipped) alongside `database`, `cache_queue`,
+  `ai_provider`. Configuration checks never hard-gate; connectivity probes
+  do.
+- **Runbooks** — `docs/ops/launch-readiness.md` (gap analysis: A in-repo,
+  B external, C deferred + the complete external setup order),
+  `docs/ops/backup-recovery-runbook.md` (targets, custody, restore drill,
+  recovery); incident/release runbooks updated for the new probes and
+  mitigation levers.
+
+### Removed
+
+- **`WEBHOOK_SECRET`** — dead config from the PRD's generic env list.
+  Shopify signs webhook deliveries with the app secret; HMAC verification
+  has one source of truth, `SHOPIFY_API_SECRET` (M1 replay suites intact).
+
+### Verification
+
+- 1197 workspace tests green + 4 Redis-gated skips (19 projects, +32):
+  API ops end-to-end suite (11), worker enforcement suite (3), monitoring
+  unit suite (13), readiness unit additions (1), web maintenance boundary
+  + admin Ops-tab flows (+3), axe WCAG 2.2 AA gate extended to the Ops
+  surface (now 8 surfaces).
+- Typecheck clean (19 projects), build clean, migration drift zero,
+  hygiene scan clean (no console.log outside bootstrap/seed, no `any`, no
+  TODO/FIXME, no secret-shaped literals, no placeholder production paths).
+
 ## [1.1.0] — 2026-08-08 — M8: Phase 3 — AI Copilot · Forecasting · Enterprise Reports
 
 Feature release: the merchant-facing AI conversation surface, method-versioned

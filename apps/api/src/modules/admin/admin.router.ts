@@ -1,8 +1,9 @@
 import { Router, type Router as ExpressRouter } from "express";
 import type { NextFunction, Request, Response } from "express";
-import { desc, eq, platformAdminActions, supportTickets } from "@profit/db";
+import { and, desc, eq, gte, sql, backgroundJobs, failedJobs, platformAdminActions, stores, supportTickets } from "@profit/db";
+import { featureFlagsFor, mergeFeatureOverrides } from "@profit/db";
 import type { ProfitDb } from "@profit/db";
-import { AccessOverrideKind, PlatformAdminAction, SupportTicketStatus } from "@profit/types";
+import { AccessOverrideKind, JobStatus, PlatformAdminAction, SupportTicketStatus } from "@profit/types";
 import { AccessOverrideService, BillingService, GrowthAnalyticsService } from "@profit/billing";
 import { SupportNotifyJob, SupportService } from "@profit/automation";
 import type { JobPersistence, JobQueue } from "@profit/queue";
@@ -16,6 +17,7 @@ import type { AuditService } from "../audit/audit.service";
 import { adminPayloadHash, mintAdminSession, verifyAdminSession } from "./admin-session";
 import { AccessReviewService } from "./access-review.service";
 import { passThroughAutomationError } from "../automation-center/api-errors";
+import { OpsFlagsService } from "../ops/ops-flags.service";
 
 /**
  * /api/v1/admin (M5 READ panel + M6 WRITE surface, P4/P12).
@@ -56,6 +58,29 @@ const ticketReplySchema = z
   .object({ body: z.string().min(1).max(10_000) })
   .strict();
 
+/** Launch readiness (ADR 37): maintenance toggle — the only platform-scope write. */
+const maintenanceSchema = z
+  .object({
+    enabled: z.boolean(),
+    message: z.string().max(500).nullable().optional(),
+    reason: z.string().min(1).max(500),
+  })
+  .strict();
+
+/** Launch readiness (ADR 37): closed taxonomy — unknown keys are 400s, not silent drops. */
+const featureFlagsPatchSchema = z
+  .object({
+    flags: z
+      .object({
+        aiDisabled: z.boolean().optional(),
+        automationDisabled: z.boolean().optional(),
+      })
+      .strict()
+      .refine((value) => Object.values(value).some((flag) => flag !== undefined), "at least one flag key is required"),
+    reason: z.string().min(1).max(500),
+  })
+  .strict();
+
 export function adminRouter(deps: {
   db: ProfitDb;
   platformAdminKey: string | undefined;
@@ -69,6 +94,7 @@ export function adminRouter(deps: {
   const overrides = new AccessOverrideService(deps.db);
   const support = new SupportService(deps.db);
   const accessReview = new AccessReviewService(deps.db);
+  const opsFlags = new OpsFlagsService(deps.db);
 
   router.use(requirePlatformAdmin({ platformAdminKey: deps.platformAdminKey, audit: deps.audit }));
 
@@ -384,6 +410,126 @@ export function adminRouter(deps: {
       const review = await accessReview.reviewStore(storeId);
       if (review === null) throw new NotFoundError("store", storeId);
       res.status(200).json(successEnvelope(getRequestContext(), review));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /* ─── launch readiness: ops control plane (ADR 37) ─────────────── */
+
+  /** Current platform ops flags (maintenance state + provenance). */
+  router.get("/ops/flags", async (_req, res, next) => {
+    try {
+      const maintenance = await opsFlags.getMaintenance();
+      res.status(200).json(successEnvelope(getRequestContext(), { maintenance }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /** Write: enable/disable maintenance mode (step-up). Engages on the NEXT merchant request. */
+  router.patch("/ops/maintenance", requireAdminSession, async (req, res, next) => {
+    try {
+      const body = maintenanceSchema.safeParse(req.body);
+      if (!body.success) throw ValidationError.fromZod(body.error.issues);
+      const state = await opsFlags.setMaintenance({
+        enabled: body.data.enabled,
+        message: body.data.message ?? null,
+        setBy: req.adminOperatorId!,
+      });
+      await recordAction(req, {
+        action: PlatformAdminAction.SetMaintenanceMode,
+        storeId: null,
+        targetType: "platform_flags",
+        targetId: "maintenance",
+        payload: body.data,
+      });
+      res.status(200).json(successEnvelope(getRequestContext(), { maintenance: state }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /** Per-store feature flags (current taxonomy values, others default off). */
+  router.get("/merchants/:storeId/feature-flags", async (req, res, next) => {
+    try {
+      const storeId = req.params["storeId"]!;
+      const exists = await deps.db.select({ id: stores.id }).from(stores).where(eq(stores.id, storeId)).limit(1);
+      if (exists[0] === undefined) throw new NotFoundError("store", storeId);
+      const flags = await featureFlagsFor(deps.db, storeId);
+      res.status(200).json(successEnvelope(getRequestContext(), { storeId, flags }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /** Write: merge per-merchant feature flags (step-up; last-write-wins per key). */
+  router.patch("/merchants/:storeId/feature-flags", requireAdminSession, async (req, res, next) => {
+    try {
+      const storeId = req.params["storeId"]!;
+      const body = featureFlagsPatchSchema.safeParse(req.body);
+      if (!body.success) throw ValidationError.fromZod(body.error.issues);
+      const exists = await deps.db.select({ id: stores.id }).from(stores).where(eq(stores.id, storeId)).limit(1);
+      if (exists[0] === undefined) throw new NotFoundError("store", storeId);
+      const flags = await mergeFeatureOverrides(deps.db, storeId, body.data.flags);
+      await recordAction(req, {
+        action: PlatformAdminAction.SetFeatureFlags,
+        storeId,
+        targetType: "store_settings",
+        targetId: storeId,
+        payload: { flags: body.data.flags, reason: body.data.reason },
+      });
+      res.status(200).json(successEnvelope(getRequestContext(), { storeId, flags }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * Job-queue ops view (PRD Part-5: pending · running · completed · failed ·
+   * retries · DLQ). Cross-tenant by deliberate admin design (same trust class
+   * as growth analytics). Reads the durable background_jobs mirror, so the
+   * view is correct even when Redis is down or queues are paused.
+   */
+  router.get("/ops/jobs", async (_req, res, next) => {
+    try {
+      const dayAgo = new Date(Date.now() - 86_400_000);
+      const [byStatusRows, byQueueRows, failedToday, deadLetteredRows, latestRows] = await Promise.all([
+        deps.db
+          .select({ status: backgroundJobs.status, count: sql<number>`count(*)::int` })
+          .from(backgroundJobs)
+          .groupBy(backgroundJobs.status),
+        deps.db
+          .select({
+            queue: backgroundJobs.queue,
+            queued: sql<number>`count(*) filter (where ${backgroundJobs.status} = ${JobStatus.Queued})::int`,
+            running: sql<number>`count(*) filter (where ${backgroundJobs.status} = ${JobStatus.Running})::int`,
+            failed: sql<number>`count(*) filter (where ${backgroundJobs.status} in (${JobStatus.Failed}, ${JobStatus.DeadLettered}))::int`,
+            attempts: sql<number>`coalesce(sum(${backgroundJobs.attempts}), 0)::int`,
+          })
+          .from(backgroundJobs)
+          .groupBy(backgroundJobs.queue),
+        deps.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(backgroundJobs)
+          .where(and(eq(backgroundJobs.status, JobStatus.Failed), gte(backgroundJobs.updatedAt, dayAgo))),
+        deps.db.select({ count: sql<number>`count(*)::int` }).from(failedJobs),
+        deps.db.select({ latest: sql<Date | null>`max(${backgroundJobs.updatedAt})` }).from(backgroundJobs),
+      ]);
+
+      const byStatus: Record<string, number> = Object.fromEntries(Object.values(JobStatus).map((status) => [status, 0]));
+      for (const row of byStatusRows) byStatus[row.status] = row.count;
+
+      res.status(200).json(
+        successEnvelope(getRequestContext(), {
+          byStatus,
+          failedLast24h: failedToday[0]?.count ?? 0,
+          deadLettered: deadLetteredRows[0]?.count ?? 0,
+          byQueue: byQueueRows,
+          latestActivityAt: latestRows[0]?.latest ?? null,
+          sampledAt: new Date().toISOString(),
+        }),
+      );
     } catch (error) {
       next(error);
     }

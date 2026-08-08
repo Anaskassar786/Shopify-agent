@@ -5,6 +5,7 @@ import { AppError, ErrorCode, ValidationError } from "../lib/errors";
 import { getRequestContext } from "../lib/context/request-context";
 import { errorEnvelope } from "../lib/http/envelope";
 import type { Logger } from "@profit/logger";
+import type { ErrorMonitor } from "@profit/monitoring";
 
 /** Body-parser syntax failures arrive as raw SyntaxError with this marker. */
 function isBodyParseError(err: unknown): err is SyntaxError & { status: number } {
@@ -75,10 +76,21 @@ function toResponse(err: unknown): { status: number; items: readonly ApiErrorIte
  * error responses). Decides what the client may see; logs everything else with
  * request bindings. Stack traces never leave the process.
  */
-export function errorHandlerMiddleware(logger: Logger): ErrorRequestHandler {
+export function errorHandlerMiddleware(logger: Logger, errorMonitor?: ErrorMonitor): ErrorRequestHandler {
   return (err: unknown, req, res, _next) => {
     const ctx = getRequestContext();
     const { status, items } = toResponse(err);
+
+    // ADR 38: 5xx are exactly the incidents the monitoring channel exists
+    // for — captured fire-and-forget after the response is decided.
+    if (status >= 500 && errorMonitor !== undefined) {
+      void errorMonitor.captureException(err, {
+        service: "api",
+        requestId: ctx.requestId,
+        ...(ctx.storeId !== undefined ? { storeId: ctx.storeId } : {}),
+        ...(ctx.userId !== undefined ? { userId: ctx.userId } : {}),
+      });
+    }
 
     const logPayload = {
       requestId: ctx.requestId,

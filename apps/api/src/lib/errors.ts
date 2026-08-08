@@ -26,6 +26,8 @@ export const ErrorCode = {
   /** M5: the Shopify charge provider is not configured — never a fake charge. */
   BillingUnavailable: "BILLING_UNAVAILABLE",
   MaintenanceMode: "MAINTENANCE_MODE",
+  /** Launch readiness (ADR 37): a per-merchant feature flag blocks this capability. */
+  FeatureDisabled: "FEATURE_DISABLED",
   /** M7: express.json rejected an over-budget body before application code ran. */
   PayloadTooLarge: "PAYLOAD_TOO_LARGE",
   Internal: "INTERNAL_ERROR",
@@ -210,6 +212,19 @@ export class MaintenanceError extends AppError {
   constructor(message = "Service temporarily unavailable for maintenance") {
     super(ErrorCode.MaintenanceMode, { httpStatus: 503, message, expose: true });
     this.name = "MaintenanceError";
+  }
+}
+
+/** Launch readiness (ADR 37): capability disabled for this store by an operator flag. */
+export class FeatureDisabledError extends AppError {
+  constructor(feature: string) {
+    super(ErrorCode.FeatureDisabled, {
+      httpStatus: 503,
+      message: `${feature} is temporarily disabled for this store. Contact support if you did not expect this.`,
+      expose: true,
+      details: { feature },
+    });
+    this.name = "FeatureDisabledError";
   }
 }
 

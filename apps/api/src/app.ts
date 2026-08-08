@@ -8,6 +8,7 @@ import { errorHandlerMiddleware } from "./middleware/error-handler.middleware";
 import { httpLoggerMiddleware } from "./middleware/http-logger.middleware";
 import { notFoundMiddleware } from "./middleware/not-found.middleware";
 import { requestContextMiddleware } from "./middleware/request-context.middleware";
+import type { ErrorMonitor } from "@profit/monitoring";
 import type { HealthService } from "./modules/health/health.service";
 import { healthRouter } from "./modules/health/health.router";
 import { createApiV1Router, type ApiV1Routers } from "./routes/v1/index";
@@ -32,6 +33,8 @@ export interface AppDeps {
    * the embedded app would 404 in production (M7 wiring fix, regression-tested).
    */
   readonly spa?: SpaMount;
+  /** Launch readiness (ADR 38): captures 5xx into the monitoring channel. */
+  readonly errorMonitor?: ErrorMonitor;
 }
 
 /**
@@ -79,7 +82,7 @@ export function createApp(deps: AppDeps): Express {
   }
 
   app.use(notFoundMiddleware());
-  app.use(errorHandlerMiddleware(deps.logger));
+  app.use(errorHandlerMiddleware(deps.logger, deps.errorMonitor));
 
   return app;
 }

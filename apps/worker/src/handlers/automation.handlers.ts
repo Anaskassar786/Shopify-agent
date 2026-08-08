@@ -1,5 +1,5 @@
 import { and, eq } from "@profit/db";
-import { shopifyCustomers } from "@profit/db";
+import { featureFlagsFor, isFeatureDisabled, shopifyCustomers } from "@profit/db";
 import type { ProfitDb } from "@profit/db";
 import {
   CampaignDispatchJob,
@@ -22,7 +22,7 @@ import { shopifyPostJson, shopifyPutJson } from "@profit/shopify";
 import { resolveStoreAdminContext } from "@profit/sync";
 import { NotificationService } from "@profit/notifications";
 import type { JobHandler } from "@profit/queue";
-import { NotificationCategory, WorkflowTriggerKind } from "@profit/types";
+import { NotificationCategory, FeatureFlag, WorkflowTriggerKind } from "@profit/types";
 import type {
   CampaignDispatchPayload,
   CampaignSendBatchPayload,
@@ -168,9 +168,27 @@ export function automationTickHandler(deps: WorkerDeps): JobHandler<Record<strin
   };
 }
 
-/** automation.run-start — create the run row (idempotent) and walk the graph. */
+/**
+ * automation.run-start — create the run row (idempotent) and walk the graph.
+ * Launch readiness (ADR 37): every trigger kind (schedule/manual/webhook)
+ * funnels through this one handler, so the per-merchant `automationDisabled`
+ * flag is enforced HERE — a disabled store's run-start acks + skips loudly
+ * (never an error, never a retry); runs already in flight still finish.
+ */
 export function workflowRunStartHandler(deps: WorkerDeps): JobHandler<WorkflowRunStartPayload> {
   return async (ctx) => {
+    const flags = await featureFlagsFor(deps.db.db, ctx.payload.storeId);
+    if (isFeatureDisabled(flags, FeatureFlag.AutomationDisabled)) {
+      deps.logger.info(
+        {
+          storeId: ctx.payload.storeId,
+          workflowId: ctx.payload.workflowId,
+          triggerKind: ctx.payload.triggerKind,
+        },
+        "automation.run.skipped_feature_disabled",
+      );
+      return;
+    }
     const executor = executorFor(deps);
     const outcome = await executor.startRun({
       storeId: ctx.payload.storeId,

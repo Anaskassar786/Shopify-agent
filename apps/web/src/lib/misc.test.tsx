@@ -134,6 +134,34 @@ describe("QueryBoundary", () => {
     expect(refetch).toHaveBeenCalled();
   });
 
+  it("renders the calm maintenance surface with the operator's message (ADR 37)", () => {
+    const refetch = vi.fn(() => Promise.resolve());
+    render(
+      <QueryBoundary
+        query={makeQuery({
+          isError: true,
+          error: new ApiError({
+            status: 503,
+            code: "MAINTENANCE_MODE",
+            message: "Upgrading the data plane — back in five.",
+            requestId: "req-maint",
+            field: null,
+            details: null,
+          }),
+          refetch,
+        })}
+      >
+        <p>content</p>
+      </QueryBoundary>,
+    );
+    expect(screen.getByText("We'll be right back")).toBeInTheDocument();
+    expect(screen.getByText("Upgrading the data plane — back in five.")).toBeInTheDocument();
+    // Not an alarm state: no error id, no danger styling — a calm manual retry only.
+    expect(screen.queryByText(/req-maint/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /check again/i }));
+    expect(refetch).toHaveBeenCalled();
+  });
+
   it("renders the offline variant for connectivity failures without a retry button", () => {
     render(
       <QueryBoundary

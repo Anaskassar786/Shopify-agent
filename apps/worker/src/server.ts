@@ -3,6 +3,7 @@ import { createCache, createPubSub } from "@profit/cache";
 import { EncryptionService } from "@profit/crypto";
 import { createDbClient, probeDbConnection } from "@profit/db";
 import { createLogger } from "@profit/logger";
+import { createErrorMonitor } from "@profit/monitoring";
 import { createJobQueue, JobPersistence } from "@profit/queue";
 import {
   AnalyticsNightlyTickJob,
@@ -192,6 +193,26 @@ export async function registerWorkerSchedules(deps: WorkerDeps): Promise<void> {
 export async function startWorker(): Promise<RunningWorker> {
   const env = loadWorkerEnv();
   const logger = createLogger({ level: env.LOG_LEVEL, service: "worker", environment: env.NODE_ENV });
+
+  // Error capture (ADR 38): real Sentry adapter when SENTRY_DSN is set,
+  // documented no-op otherwise. Best-effort delivery — bounded (1.5s) and
+  // can never crash the worker itself.
+  const errorMonitor = createErrorMonitor({
+    dsn: env.SENTRY_DSN,
+    release: env.APP_VERSION,
+    environment: env.NODE_ENV,
+    logger,
+  });
+  process.on("unhandledRejection", (reason: unknown) => {
+    logger.error({ err: reason }, "worker.unhandled_rejection");
+    void errorMonitor.captureException(reason, { service: "worker" });
+  });
+  process.once("uncaughtException", (error: unknown) => {
+    logger.fatal({ err: error }, "worker.uncaught_exception");
+    void errorMonitor
+      .captureException(error, { service: "worker" })
+      .finally(() => process.exit(1));
+  });
 
   if (env.DATABASE_URL === undefined || env.ENCRYPTION_KEY === undefined) {
     throw new Error("worker requires DATABASE_URL and ENCRYPTION_KEY to start");

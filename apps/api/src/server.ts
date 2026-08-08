@@ -52,6 +52,9 @@ import { campaignsRouter } from "./modules/automation-center/campaigns.router";
 import { exportsRouter } from "./modules/automation-center/exports.router";
 import { supportRouter } from "./modules/automation-center/support.router";
 import { trackingRouter } from "./modules/automation-center/tracking.router";
+import { maintenanceModeGuard } from "./middleware/maintenance.middleware";
+import { OpsFlagsService } from "./modules/ops/ops-flags.service";
+import { createErrorMonitor } from "@profit/monitoring";
 import { createRealtimeGateway } from "./modules/realtime/gateway";
 import { createSpaHandler } from "./static/spa";
 import {
@@ -83,6 +86,26 @@ export async function startServer(): Promise<RunningServer> {
     environment: env.NODE_ENV,
   });
 
+  // Error capture (ADR 38): real Sentry adapter when SENTRY_DSN is set,
+  // documented no-op otherwise. Process-level capture is best-effort —
+  // delivery is bounded (1.5s) and can never crash the API itself.
+  const errorMonitor = createErrorMonitor({
+    dsn: env.SENTRY_DSN,
+    release: env.APP_VERSION,
+    environment: env.NODE_ENV,
+    logger,
+  });
+  process.on("unhandledRejection", (reason: unknown) => {
+    logger.error({ err: reason }, "api.unhandled_rejection");
+    void errorMonitor.captureException(reason, { service: "api" });
+  });
+  process.once("uncaughtException", (error: unknown) => {
+    logger.fatal({ err: error }, "api.uncaught_exception");
+    void errorMonitor
+      .captureException(error, { service: "api" })
+      .finally(() => process.exit(1));
+  });
+
   const db: DbClient | undefined =
     env.DATABASE_URL !== undefined
       ? createDbClient({ url: env.DATABASE_URL, maxConnections: 10 })
@@ -105,6 +128,11 @@ export async function startServer(): Promise<RunningServer> {
       await cache.get(key);
     },
     aiConfigured: env.GEMINI_API_KEY !== undefined,
+    shopifyConfigured:
+      env.SHOPIFY_API_KEY !== undefined &&
+      env.SHOPIFY_API_SECRET !== undefined &&
+      env.SHOPIFY_APP_URL !== undefined &&
+      env.SHOPIFY_SCOPES !== undefined,
   });
 
   const pubsub = createPubSub({ logger, redisUrl: env.REDIS_URL });
@@ -119,7 +147,7 @@ export async function startServer(): Promise<RunningServer> {
     shopifyApiKey: env.SHOPIFY_API_KEY,
     logger,
   });
-  const app = createApp({ env, logger, healthService, routers, spa });
+  const app = createApp({ env, logger, healthService, routers, spa, errorMonitor });
 
   // M3: realtime gateway — JWT-authed WS fan-out of tenant pub/sub events.
   const gateway = createRealtimeGateway({
@@ -359,6 +387,9 @@ function buildRouters(
     shopify: shopifyRouter({ oauth, webhooks, logger }),
     legal,
     apiV1: {
+      // Launch readiness (ADR 37): maintenance guard is REAL here (flag row
+      // in platform_flags); stub/exempt mounts live in routes/v1 ordering.
+      maintenanceGuard: maintenanceModeGuard(new OpsFlagsService(db.db)),
       auth: authRouter({ auth, jwt, cache }),
       store: storeRouter({ db: db.db, jwt, audit, logger, supportEmail: env.SUPPORT_EMAIL ?? null }),
       sync: syncRouter({ db: db.db, jwt, queue, persistence, cache }),
@@ -427,6 +458,11 @@ function buildRouters(
 /** Unwired-module routers: mounted paths stay absent → uniform 404 envelope. */
 function stubApiV1(): AppRouters["apiV1"] {
   return {
+    // No flags table in degraded mode → maintenance cannot be enabled;
+    // pass-through keeps the mount contract honest (ADR 37).
+    maintenanceGuard: (_req, _res, next) => {
+      next();
+    },
     auth: Router(),
     store: Router(),
     sync: Router(),

@@ -56,6 +56,8 @@ import { supportRouter } from "../modules/automation-center/support.router";
 import { trackingRouter } from "../modules/automation-center/tracking.router";
 import { copilotRouter } from "../modules/copilot/copilot.router";
 import { reportsRouter } from "../modules/reports/reports.router";
+import { maintenanceModeGuard } from "../middleware/maintenance.middleware";
+import { OpsFlagsService } from "../modules/ops/ops-flags.service";
 import { searchRouter } from "../modules/search/search.router";
 import {
   customersRouter,
@@ -257,6 +259,10 @@ export async function buildTestEnvironment(options: TestEnvironmentOptions = {})
         appUrl: APP_URL,
       }),
       apiV1: {
+        // Launch readiness: the REAL maintenance guard, same wiring parity
+        // as the production composition root — ops suites toggle the platform
+        // flag through the admin API and observe the 503 plane here.
+        maintenanceGuard: maintenanceModeGuard(new OpsFlagsService(db)),
         auth: authRouter({ auth, jwt, cache }),
         store: storeRouter({ db, jwt, audit, logger, supportEmail: TEST_SUPPORT_EMAIL }),
         sync: syncRouter({ db, jwt, queue, persistence, cache }),

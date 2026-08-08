@@ -1,18 +1,23 @@
 import { useEffect, type ReactNode } from "react";
 import type { UseQueryResult } from "@tanstack/react-query";
-import { CloudOff } from "lucide-react";
-import { ErrorState, SkeletonText } from "@profit/ui";
+import { CloudOff, Wrench } from "lucide-react";
+import { Button, EmptyState, ErrorState, SkeletonText } from "@profit/ui";
 import { ApiError } from "../lib/api-client";
 import { isOfflineError, useOnlineStatus } from "../lib/use-online";
+
+/** Server-typed platform maintenance (ADR 37) — the operator's message is the body. */
+const MAINTENANCE_CODE = "MAINTENANCE_MODE";
 
 /**
  * The single loading/error/offline policy for every data-driven block (user
  * requirement: every page gracefully handles loading, empty, error, offline).
- *   pending  → caller-provided skeleton
- *   offline  → honest "you're offline" state, auto-refetch on reconnect
- *   error    → ErrorState with the server request id + retry
- *   success  → children (the owning page renders empty states explicitly —
- *              empty is content, not a boundary condition)
+ *   pending     → caller-provided skeleton
+ *   offline     → honest "you're offline" state, auto-refetch on reconnect
+ *   maintenance → calm scheduled-maintenance surface (operator message, calm
+ *                 retry — NOT an alarm state; it is the platform keeping a promise)
+ *   error       → ErrorState with the server request id + retry
+ *   success     → children (the owning page renders empty states explicitly —
+ *                 empty is content, not a boundary condition)
  */
 export interface QueryBoundaryProps {
   readonly query: Pick<UseQueryResult<unknown, ApiError>, "isPending" | "isError" | "error" | "refetch" | "failureCount">;
@@ -38,6 +43,21 @@ export function QueryBoundary({ query, children, loading, compact = false }: Que
 
   if (query.isError && query.error !== null) {
     const error: ApiError = query.error;
+    if (error.code === MAINTENANCE_CODE) {
+      return (
+        <EmptyState
+          icon={<Wrench className="size-6" aria-hidden />}
+          title="We'll be right back"
+          body={error.message}
+          primaryAction={
+            <Button variant="secondary" size="sm" onClick={() => void query.refetch()}>
+              Check again
+            </Button>
+          }
+          {...(compact ? { className: "py-6" } : {})}
+        />
+      );
+    }
     const offline = isOfflineError(error) || !online;
     return (
       <ErrorState

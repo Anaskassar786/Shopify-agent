@@ -38,6 +38,9 @@ importers:
       '@profit/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@profit/monitoring':
+        specifier: workspace:*
+        version: link:../../packages/monitoring
       '@profit/notifications':
         specifier: workspace:*
         version: link:../../packages/notifications
@@ -214,6 +217,9 @@ importers:
       '@profit/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@profit/monitoring':
+        specifier: workspace:*
+        version: link:../../packages/monitoring
       '@profit/notifications':
         specifier: workspace:*
         version: link:../../packages/notifications
@@ -479,6 +485,25 @@ importers:
       pino:
         specifier: ^9.6.0
         version: 9.14.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.1
+      '@vitest/coverage-v8':
+        specifier: ^2.1.8
+        version: 2.1.9(vitest@2.1.9(@types/node@22.20.1)(jsdom@26.1.0)(lightningcss@1.32.0))
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(jsdom@26.1.0)(lightningcss@1.32.0)
+
+  packages/monitoring:
+    dependencies:
+      '@profit/logger':
+        specifier: workspace:*
+        version: link:../logger
     devDependencies:
       '@types/node':
         specifier: ^22.10.2

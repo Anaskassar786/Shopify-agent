@@ -41,6 +41,12 @@ export interface HealthServiceDeps {
    * honestly — the provider's runtime health surfaces in AI activity views.
    */
   readonly aiConfigured?: boolean;
+  /**
+   * Launch readiness: Shopify app-credentials truth (P5 signal). Same
+   * configuration-not-live convention as the AI check — connectivity itself
+   * is exercised per-install/webhook, not on a readiness budget.
+   */
+  readonly shopifyConfigured?: boolean;
 }
 
 const DEFAULT_PROBE_TIMEOUT_MS = 2_000;
@@ -52,6 +58,7 @@ export class HealthService {
   private readonly dbProbe?: () => Promise<unknown>;
   private readonly cacheProbe?: () => Promise<unknown>;
   private readonly aiConfigured: boolean;
+  private readonly shopifyConfigured: boolean;
 
   constructor(deps: HealthServiceDeps) {
     this.version = deps.version;
@@ -60,6 +67,7 @@ export class HealthService {
     if (deps.dbProbe !== undefined) this.dbProbe = deps.dbProbe;
     if (deps.cacheProbe !== undefined) this.cacheProbe = deps.cacheProbe;
     this.aiConfigured = deps.aiConfigured ?? false;
+    this.shopifyConfigured = deps.shopifyConfigured ?? false;
   }
 
   liveness(): LivenessReport {
@@ -76,6 +84,7 @@ export class HealthService {
       await this.checkDatabase(),
       await this.checkCache(),
       this.checkAiConfiguration(),
+      this.checkShopifyConfiguration(),
     ];
     const ready = checks.every(
       (check) => check.status === HealthStatus.Ok || check.status === "skipped",
@@ -129,6 +138,12 @@ export class HealthService {
     return this.aiConfigured
       ? { name: "ai_provider", status: HealthStatus.Ok, reason: "configured" }
       : { name: "ai_provider", status: "skipped", reason: "GEMINI_API_KEY not configured" };
+  }
+
+  private checkShopifyConfiguration(): DependencyCheckResult {
+    return this.shopifyConfigured
+      ? { name: "shopify", status: HealthStatus.Ok, reason: "configured" }
+      : { name: "shopify", status: "skipped", reason: "Shopify app credentials not configured" };
   }
 }
 

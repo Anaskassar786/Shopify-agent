@@ -2,6 +2,7 @@ import { Router, type Router as ExpressRouter } from "express";
 import { z } from "zod";
 import type { ProfitDb } from "@profit/db";
 import { CopilotNotFoundError, CopilotService, type AiProvider } from "@profit/ai";
+import { FeatureFlag } from "@profit/types";
 import { getRequestContext } from "../../lib/context/request-context";
 import { NotFoundError, ValidationError } from "../../lib/errors";
 import { successEnvelope } from "../../lib/http/envelope";
@@ -10,6 +11,7 @@ import {
   requireAppAuth,
   requirePermission,
 } from "../../middleware/auth.middleware";
+import { requireFeature } from "../../middleware/feature-flags.middleware";
 import type { JwtService } from "../auth/jwt.service";
 
 /**
@@ -43,29 +45,34 @@ export function copilotRouter(deps: CopilotRouterDeps): ExpressRouter {
   router.use(requireAppAuth(deps.jwt), requireActiveStore(deps.db));
 
   /** Ask a question — starts a conversation or threads into an existing one. */
-  router.post("/ask", requirePermission("copilot:ask"), async (req, res, next) => {
-    try {
-      if (req.appAuth === undefined) throw new Error("auth context missing after guard");
-      const body = askBodySchema.safeParse(req.body ?? {});
-      if (!body.success) throw ValidationError.fromZod(body.error.issues);
-      const result = await service.ask(req.appAuth.storeId, req.appAuth.userId, {
-        question: body.data.question,
-        ...(body.data.conversationId !== undefined ? { conversationId: body.data.conversationId } : {}),
-      });
-      res.status(201).json(
-        successEnvelope(getRequestContext(), {
-          conversationId: result.conversationId,
-          messageId: result.messageId,
-          intent: result.intent,
-          answer: result.answer,
-          modelEnhanced: result.modelEnhanced,
-          evidence: result.evidence,
-        }),
-      );
-    } catch (error) {
-      next(mapCopilotError(error));
-    }
-  });
+  router.post(
+    "/ask",
+    requireFeature(deps.db, FeatureFlag.AiDisabled),
+    requirePermission("copilot:ask"),
+    async (req, res, next) => {
+      try {
+        if (req.appAuth === undefined) throw new Error("auth context missing after guard");
+        const body = askBodySchema.safeParse(req.body ?? {});
+        if (!body.success) throw ValidationError.fromZod(body.error.issues);
+        const result = await service.ask(req.appAuth.storeId, req.appAuth.userId, {
+          question: body.data.question,
+          ...(body.data.conversationId !== undefined ? { conversationId: body.data.conversationId } : {}),
+        });
+        res.status(201).json(
+          successEnvelope(getRequestContext(), {
+            conversationId: result.conversationId,
+            messageId: result.messageId,
+            intent: result.intent,
+            answer: result.answer,
+            modelEnhanced: result.modelEnhanced,
+            evidence: result.evidence,
+          }),
+        );
+      } catch (error) {
+        next(mapCopilotError(error));
+      }
+    },
+  );
 
   /** Conversation list (most recent first). */
   router.get("/conversations", requirePermission("copilot:read"), async (req, res, next) => {

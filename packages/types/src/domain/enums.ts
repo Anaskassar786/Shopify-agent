@@ -257,6 +257,25 @@ export const QueueName = {
 } as const;
 export type QueueName = (typeof QueueName)[keyof typeof QueueName];
 
+/**
+ * Per-merchant feature-flag taxonomy (launch readiness, ADR 37): the ONLY
+ * supported keys inside `store_settings.featureOverrides`. Platform-managed
+ * (admin API), never merchant-editable; each flag DISABLES a capability.
+ */
+export const FeatureFlag = {
+  /** Blocks provider-crossing AI writes (decision runs, copilot ask). */
+  AiDisabled: "aiDisabled",
+  /** Blocks automation mutations AND new workflow run starts (worker). */
+  AutomationDisabled: "automationDisabled",
+} as const;
+export type FeatureFlag = (typeof FeatureFlag)[keyof typeof FeatureFlag];
+
+/** Platform-scope flags (launch readiness, ADR 37): keys inside `platform_flags`. */
+export const PlatformFlagKey = {
+  Maintenance: "maintenance",
+} as const;
+export type PlatformFlagKey = (typeof PlatformFlagKey)[keyof typeof PlatformFlagKey];
+
 /** Notifications (P4). */
 export const NotificationCategory = {
   Ai: "AI",
@@ -644,6 +663,10 @@ export const PlatformAdminAction = {
   ReplyTicket: "platform.admin.ticket.reply",
   ResolveTicket: "platform.admin.ticket.resolve",
   CloseTicket: "platform.admin.ticket.close",
+  /** Launch readiness (ADR 37): maintenance-mode toggle, platform-scope. */
+  SetMaintenanceMode: "platform.admin.maintenance.set",
+  /** Launch readiness (ADR 37): per-merchant feature-flag override write. */
+  SetFeatureFlags: "platform.admin.feature-flags.set",
 } as const;
 export type PlatformAdminAction =
   (typeof PlatformAdminAction)[keyof typeof PlatformAdminAction];
