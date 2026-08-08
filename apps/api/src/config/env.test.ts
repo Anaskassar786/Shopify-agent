@@ -36,6 +36,9 @@ describe("loadEnv", () => {
       expect(issues).toContain("JWT_SECRET");
       expect(issues).toContain("SHOPIFY_API_KEY");
       expect(issues).toContain("ENCRYPTION_KEY");
+      // M7 legal plane: public policies must name their entity + support channel.
+      expect(issues).toContain("SUPPORT_EMAIL");
+      expect(issues).toContain("LEGAL_ENTITY_NAME");
     }
   });
 
@@ -51,9 +54,12 @@ describe("loadEnv", () => {
       SHOPIFY_API_SECRET: "shp_secret",
       SHOPIFY_APP_URL: "https://app.example.com",
       SHOPIFY_SCOPES: "read_products",
+      SUPPORT_EMAIL: "support@app.example.com",
+      LEGAL_ENTITY_NAME: "Example Labs Inc.",
     });
     expect(env.NODE_ENV).toBe(Environment.Production);
     expect(env.SHOPIFY_APP_URL).toBe("https://app.example.com");
+    expect(env.SUPPORT_EMAIL).toBe("support@app.example.com");
   });
 
   it("staging follows the same requirements as production", () => {

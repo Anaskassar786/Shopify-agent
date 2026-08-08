@@ -10,6 +10,7 @@ import { ADMIN_QK } from "../lib/query-keys";
 import type {
   AccessOverrideKindDto,
   AccessOverrideRowDto,
+  AccessReviewResponseDto,
   AdminActionRowDto,
   AdminAiUsageRow,
   AdminMerchantRow,
@@ -20,6 +21,7 @@ import type {
   AdminTicketThreadResponse,
   AdminTicketsResponse,
   AdminTrialExtensionResponse,
+  OperatorSessionRowDto,
 } from "../lib/api-types";
 import type { AdminSession } from "../admin/admin-session-store";
 
@@ -296,6 +298,31 @@ export function useAdminOverridesQuery(
     storeId === null ? "/merchants" : `/merchants/${storeId}/access-overrides`,
     undefined,
     storeId !== null,
+  );
+}
+
+/** M7: per-store access review (SOC-2-lite evidence, key-only read). */
+export function useAdminAccessReviewQuery(
+  options: UseAdminQueryOptions,
+  storeId: string | null,
+): UseQueryResult<AccessReviewResponseDto, ApiError> {
+  return useAdminQuery<AccessReviewResponseDto>(
+    storeId === null ? null : options.adminKey,
+    ADMIN_QK.review(storeId ?? "∅"),
+    "/access-review",
+    storeId === null ? undefined : { storeId },
+    storeId !== null,
+  );
+}
+
+/** M7: global operator-session ledger — who held write authority, when, from where. */
+export function useAdminOperatorSessionsQuery(
+  options: UseAdminQueryOptions,
+): UseQueryResult<readonly OperatorSessionRowDto[], ApiError> {
+  return useAdminQuery<readonly OperatorSessionRowDto[]>(
+    options.adminKey,
+    ADMIN_QK.reviewSessions,
+    "/access-review/sessions",
   );
 }
 

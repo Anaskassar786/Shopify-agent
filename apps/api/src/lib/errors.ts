@@ -26,6 +26,8 @@ export const ErrorCode = {
   /** M5: the Shopify charge provider is not configured — never a fake charge. */
   BillingUnavailable: "BILLING_UNAVAILABLE",
   MaintenanceMode: "MAINTENANCE_MODE",
+  /** M7: express.json rejected an over-budget body before application code ran. */
+  PayloadTooLarge: "PAYLOAD_TOO_LARGE",
   Internal: "INTERNAL_ERROR",
 } as const;
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

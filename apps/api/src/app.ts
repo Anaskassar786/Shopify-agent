@@ -11,11 +11,14 @@ import { requestContextMiddleware } from "./middleware/request-context.middlewar
 import type { HealthService } from "./modules/health/health.service";
 import { healthRouter } from "./modules/health/health.router";
 import { createApiV1Router, type ApiV1Routers } from "./routes/v1/index";
+import { mountSpa, type SpaMount } from "./static/spa";
 
 export interface AppRouters {
   /** Mounted at /shopify when Shopify credentials are configured (always in prod). */
   readonly shopify?: ExpressRouter;
   readonly apiV1: ApiV1Routers;
+  /** M7 public legal pages — mounted at /legal (unauthenticated, static content). */
+  readonly legal: ExpressRouter;
 }
 
 export interface AppDeps {
@@ -23,6 +26,12 @@ export interface AppDeps {
   readonly logger: Logger;
   readonly healthService: HealthService;
   readonly routers: AppRouters;
+  /**
+   * Embedded-web static mount (M3). Registered between the API router and the
+   * 404 envelope: mounting it after notFoundMiddleware would starve it, and
+   * the embedded app would 404 in production (M7 wiring fix, regression-tested).
+   */
+  readonly spa?: SpaMount;
 }
 
 /**
@@ -57,7 +66,17 @@ export function createApp(deps: AppDeps): Express {
   // application routes are degraded.
   app.use(healthRouter(deps.healthService));
 
+  // Public legal pages (M7) — static content, unauthenticated by design;
+  // registered before the SPA fallback so /legal/* never serves the app shell.
+  app.use("/legal", deps.routers.legal);
+
   app.use("/api/v1", createApiV1Router(deps.routers.apiV1));
+
+  // The SPA swallows only GET/HEAD for non-API paths; everything else falls
+  // through to the structured 404 envelope below.
+  if (deps.spa !== undefined) {
+    mountSpa(app, deps.spa);
+  }
 
   app.use(notFoundMiddleware());
   app.use(errorHandlerMiddleware(deps.logger));

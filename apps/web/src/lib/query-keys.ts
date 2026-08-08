@@ -49,6 +49,9 @@ export const ADMIN_QK = {
   ticket: (id: string) => ["admin", "tickets", "detail", id] as const,
   actions: (page: number) => ["admin", "actions", page] as const,
   overrides: (storeId: string) => ["admin", "overrides", storeId] as const,
+  /** M7 SOC-2-lite access review. */
+  review: (storeId: string) => ["admin", "access-review", storeId] as const,
+  reviewSessions: ["admin", "access-review", "sessions"] as const,
 };
 
 /** M6 Automation Center keys (tenant-scoped merchant app). */

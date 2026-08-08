@@ -16,6 +16,22 @@ function isBodyParseError(err: unknown): err is SyntaxError & { status: number }
   );
 }
 
+/**
+ * express.json/raw rejects over-budget bodies BEFORE any application code runs
+ * (http-errors shape: status 413 + type marker). Without this branch the
+ * generic 500 fallthrough answered a client-size violation with an internal
+ * error — a wedge for log noise and a wrong signal to callers (M7 security
+ * suite baseline: size limits return typed 413s).
+ */
+function isPayloadTooLargeError(err: unknown): err is { status: number; type: string } {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { status?: unknown }).status === 413 &&
+    (err as { type?: unknown }).type === "entity.too.large"
+  );
+}
+
 function toResponse(err: unknown): { status: number; items: readonly ApiErrorItem[] } {
   if (err instanceof ZodError) {
     const validation = ValidationError.fromZod(err.issues);
@@ -31,6 +47,14 @@ function toResponse(err: unknown): { status: number; items: readonly ApiErrorIte
       };
     }
     return { status: err.httpStatus, items };
+  }
+  if (isPayloadTooLargeError(err)) {
+    return {
+      status: 413,
+      items: [
+        { code: ErrorCode.PayloadTooLarge, message: "Request body exceeds the configured size limit" },
+      ],
+    };
   }
   if (isBodyParseError(err)) {
     return {

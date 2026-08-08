@@ -88,6 +88,8 @@ export interface StoreResponse {
   readonly store: StoreProfile;
   readonly settings: StoreSettingsRow | null;
   readonly subscription: SubscriptionRow | null;
+  /** M7: platform-configured support mailbox shared with the legal plane. */
+  readonly supportEmail: string | null;
 }
 
 export interface SubscriptionResponse {
@@ -981,4 +983,58 @@ export interface AdminTrialExtensionResponse {
   readonly currentPeriodEnd: string | null;
   readonly graceEndsAt: string | null;
   readonly cancelledAt: string | null;
+}
+
+/* ── M7: SOC-2-lite access review (admin read-only evidence) ─────────────── */
+
+export interface AccessReviewStoreDto {
+  readonly storeId: string;
+  readonly name: string;
+  readonly shopDomain: string;
+  readonly status: string;
+  readonly installedAt: string;
+  readonly uninstalledAt: string | null;
+}
+
+export interface AccessReviewMemberDto {
+  readonly userId: string;
+  readonly email: string;
+  readonly fullName: string;
+  readonly status: string;
+  readonly roleCode: string;
+  readonly permissionCount: number;
+  readonly memberSince: string;
+  readonly lastLoginAt: string | null;
+}
+
+export interface AccessReviewOverrideDto {
+  readonly id: string;
+  readonly kind: AccessOverrideKindDto;
+  readonly accessUntil: string;
+  readonly grantedBy: string;
+  readonly reason: string;
+  readonly grantedAt: string;
+}
+
+export interface AccessReviewActionDto {
+  readonly id: string;
+  readonly operatorId: string;
+  readonly action: string;
+  readonly targetType: string;
+  readonly targetId: string;
+  readonly ip: string | null;
+  readonly createdAt: string;
+}
+
+export interface AccessReviewResponseDto {
+  readonly store: AccessReviewStoreDto;
+  readonly members: readonly AccessReviewMemberDto[];
+  readonly activeOverrides: readonly AccessReviewOverrideDto[];
+  readonly recentActions: readonly AccessReviewActionDto[];
+}
+
+export interface OperatorSessionRowDto {
+  readonly operatorId: string;
+  readonly ip: string | null;
+  readonly createdAt: string;
 }

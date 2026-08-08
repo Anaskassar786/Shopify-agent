@@ -16,7 +16,7 @@ const envSchema = z
     NODE_ENV: z.nativeEnum(Environment).default(Environment.Development),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     APP_URL: z.string().url().default("http://localhost:3000"),
-    APP_VERSION: z.string().min(1).default("0.1.0"),
+    APP_VERSION: z.string().min(1).default("1.0.0"),
 
     DATABASE_URL: optionalSecret,
     REDIS_URL: optionalSecret,
@@ -65,6 +65,15 @@ const envSchema = z
     /** Embedded web app bundle location (M3). Default: apps/web/dist. */
     WEB_DIST_DIR: z.string().min(1).optional(),
 
+    /**
+     * M7 legal plane: identity shown on the public /legal/* pages (app-review
+     * requirement). SUPPORT_EMAIL is the published merchant support channel
+     * (partner directory + policies); LEGAL_ENTITY_NAME is the contracting
+     * party in ToS/DPA text. Both are REQUIRED in production (see refinement).
+     */
+    SUPPORT_EMAIL: z.string().email().optional(),
+    LEGAL_ENTITY_NAME: z.string().min(1).max(200).optional(),
+
     SMTP_HOST: optionalSecret,
     SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
     SMTP_USER: optionalSecret,
@@ -94,6 +103,8 @@ const envSchema = z
       "SHOPIFY_API_SECRET",
       "SHOPIFY_APP_URL",
       "SHOPIFY_SCOPES",
+      "SUPPORT_EMAIL",
+      "LEGAL_ENTITY_NAME",
     ];
     for (const key of required) {
       if (env[key] === undefined) {

@@ -296,16 +296,6 @@ describe("audience materialization + dispatch", () => {
 
 describe("A/B campaigns", () => {
   it("splits deterministically, reports per-variant rates, declares a winner", async () => {
-    const ids: string[] = [];
-    for (let i = 0; i < 6; i += 1) {
-      ids.push(
-        await seedCustomer(testDb.db, {
-          storeId,
-          email: `ab-${i}@example.com`,
-          acceptsMarketing: true,
-        }),
-      );
-    }
     const campaign = await service.createCampaign(storeId, {
       name: "ab-test",
       channel: MessageChannel.Email,
@@ -314,6 +304,24 @@ describe("A/B campaigns", () => {
       variantB: { subject: "B subject", bodyText: "B body" },
       splitBPercent: 50,
     });
+    // Variant buckets are sha256(campaignId:customerId)-derived — the test
+    // must not hope ≥1 of 6 random ids lands in B. Seed until BOTH variants
+    // are represented so the assertion measures the implementation, not luck.
+    const ids: string[] = [];
+    let haveA = false;
+    let haveB = false;
+    for (let i = 0; i < 30 && (ids.length < 6 || !(haveA && haveB)); i += 1) {
+      const customerId = await seedCustomer(testDb.db, {
+        storeId,
+        email: `ab-${i}@example.com`,
+        acceptsMarketing: true,
+      });
+      ids.push(customerId);
+      const variant = assignVariant(campaign.id, customerId, 50);
+      haveA = haveA || variant === CampaignVariant.A;
+      haveB = haveB || variant === CampaignVariant.B;
+    }
+    expect(haveA && haveB, "fixture must contain both variant buckets").toBe(true);
     await service.scheduleCampaign(storeId, campaign.id, new Date());
     const dispatch = await service.dispatch(storeId, campaign.id);
     // ≥ the 6 ab-* rows (earlier-suite opt-ins dedupe by destination only).

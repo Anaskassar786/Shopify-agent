@@ -3,6 +3,7 @@ import type { Server } from "node:http";
 import type { PubSubPort } from "@profit/cache";
 import { Router } from "express";
 import { createCache, createPubSub, createStoreCache } from "@profit/cache";
+import { legalRouter } from "./modules/legal/legal.router";
 import { NotificationService } from "@profit/notifications";
 import { createDbClient, probeDbConnection, type DbClient } from "@profit/db";
 import { EngagementEventKind, Environment } from "@profit/types";
@@ -49,7 +50,7 @@ import { exportsRouter } from "./modules/automation-center/exports.router";
 import { supportRouter } from "./modules/automation-center/support.router";
 import { trackingRouter } from "./modules/automation-center/tracking.router";
 import { createRealtimeGateway } from "./modules/realtime/gateway";
-import { createSpaHandler, mountSpa } from "./static/spa";
+import { createSpaHandler } from "./static/spa";
 import {
   customersRouter,
   inventoryRouter,
@@ -87,23 +88,35 @@ export async function startServer(): Promise<RunningServer> {
     logger.warn("DATABASE_URL not configured — readiness will report the database as skipped");
   }
 
+  // Cache driver lives at composition-root scope (M7): readiness probes, the
+  // legal-plane rate limiter and every router share ONE instance, and the
+  // shutdown path finally closes it (the router-local one was never closed).
+  const cache = createCache({ logger, redisUrl: env.REDIS_URL });
+
   const healthService = new HealthService({
     version: env.APP_VERSION,
     ...(db !== undefined ? { dbProbe: () => probeDbConnection(db.sql) } : {}),
+    cacheProbe: async () => {
+      const key = "health:readiness-probe";
+      await cache.set(key, Date.now(), 5);
+      await cache.get(key);
+    },
+    aiConfigured: env.GEMINI_API_KEY !== undefined,
   });
 
   const pubsub = createPubSub({ logger, redisUrl: env.REDIS_URL });
-  const routers = buildRouters(env, logger, db, { pubsub });
-
-  const app = createApp({ env, logger, healthService, routers });
+  const routers = buildRouters(env, logger, db, { pubsub, cache });
 
   // M3: embedded web app hosting (no-op when the bundle is not present).
+  // The mount is passed INTO createApp so it sits between the API router and
+  // the 404 envelope — appending it afterwards would starve it behind
+  // notFoundMiddleware (M7 wiring fix; see app.ts).
   const spa = createSpaHandler({
     distDir: env.WEB_DIST_DIR ?? new URL("../../web/dist", import.meta.url).pathname,
     shopifyApiKey: env.SHOPIFY_API_KEY,
     logger,
   });
-  mountSpa(app, spa);
+  const app = createApp({ env, logger, healthService, routers, spa });
 
   // M3: realtime gateway — JWT-authed WS fan-out of tenant pub/sub events.
   const gateway = createRealtimeGateway({
@@ -135,6 +148,7 @@ export async function startServer(): Promise<RunningServer> {
     });
     await gateway.close();
     await pubsub.close();
+    await cache.close();
     if (db !== undefined) await db.close();
     logger.info("api.shutdown.complete");
   };
@@ -159,7 +173,7 @@ function buildRouters(
   env: Env,
   logger: Logger,
   db: DbClient | undefined,
-  infra: { pubsub: PubSubPort },
+  infra: { pubsub: PubSubPort; cache: ReturnType<typeof createCache> },
 ): AppRouters {
   const shopifyConfigured =
     db !== undefined &&
@@ -171,11 +185,21 @@ function buildRouters(
 
   const authConfigured = shopifyConfigured && env.JWT_SECRET !== undefined;
 
+  const { cache } = infra;
+
+  // M7 public legal plane — DB-free static content; served in every mode.
+  const legal = legalRouter({
+    cache,
+    entityName: env.LEGAL_ENTITY_NAME ?? "PROFIT TOOL AI",
+    supportEmail: env.SUPPORT_EMAIL ?? null,
+    appUrl: env.APP_URL,
+  });
+
   if (db === undefined) {
     // No database: API cannot serve tenant traffic — routers surface as 404 via
     // notFound; health endpoints remain the only functional surface (M0 mode).
     logger.warn("database not configured — auth/store/shopify routes disabled");
-    return { apiV1: stubApiV1() };
+    return { legal, apiV1: stubApiV1() };
   }
 
   const audit = new AuditService(db.db, logger);
@@ -187,7 +211,7 @@ function buildRouters(
       throw new Error("shopify/auth configuration incomplete in hosted environment");
     }
     logger.warn("shopify credentials incomplete — /shopify/* and /api/v1/auth/* disabled (dev mode)");
-    return { apiV1: stubApiV1() };
+    return { legal, apiV1: stubApiV1() };
   }
 
   const encryption = EncryptionService.create(
@@ -195,10 +219,9 @@ function buildRouters(
     env.ENCRYPTION_KEY_PREVIOUS,
   );
 
-  // M2 data-plane producers: queue + cache + durable job mirror. Driver
-  // selection happens inside the factories (Redis → BullMQ/RedisCache;
-  // absent → in-process), never in business code.
-  const cache = createCache({ logger, redisUrl: env.REDIS_URL });
+  // M2 data-plane producers: queue + durable job mirror. Driver selection
+  // happens inside the factories (Redis → BullMQ/RedisCache; absent →
+  // in-process), never in business code.
   const queue = createJobQueue({ logger, redisUrl: env.REDIS_URL });
   const persistence = new JobPersistence(db.db, logger);
 
@@ -301,9 +324,10 @@ function buildRouters(
 
   return {
     shopify: shopifyRouter({ oauth, webhooks, logger }),
+    legal,
     apiV1: {
-      auth: authRouter({ auth, jwt }),
-      store: storeRouter({ db: db.db, jwt, audit, logger }),
+      auth: authRouter({ auth, jwt, cache }),
+      store: storeRouter({ db: db.db, jwt, audit, logger, supportEmail: env.SUPPORT_EMAIL ?? null }),
       sync: syncRouter({ db: db.db, jwt, queue, persistence, cache }),
       analytics: analyticsRouter({
         db: db.db,

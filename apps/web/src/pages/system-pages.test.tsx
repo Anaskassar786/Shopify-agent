@@ -4,7 +4,7 @@ import { NotificationsPage } from "./NotificationsPage";
 import { AuditLogsPage } from "./AuditLogsPage";
 import { SupportPage } from "./SupportPage";
 import { pagedResponse, renderApp } from "../test-support/render";
-import { AUDIT_ROWS, NOTIFICATIONS } from "../test-support/fixtures";
+import { AUDIT_ROWS, NOTIFICATIONS, storeResponse } from "../test-support/fixtures";
 
 describe("NotificationsPage", () => {
   const handlers = (unread = 1) => ({
@@ -72,8 +72,11 @@ describe("AuditLogsPage", () => {
 
 describe("SupportPage", () => {
   it("renders the real contact channel and truthful FAQs", async () => {
-    renderApp(<SupportPage />, { route: "/support" });
-    expect(screen.getByText("support@profittool.ai")).toBeInTheDocument();
+    renderApp(<SupportPage />, {
+      route: "/support",
+      handlers: { get: { "/api/v1/store": () => storeResponse() } },
+    });
+    expect(await screen.findByText("support@profittool.ai")).toBeInTheDocument();
     expect(screen.queryByText(/chat/i)).not.toBeInTheDocument(); // no fake chat widget
     const question = screen.getByRole("button", { name: /how long is the free trial/i });
     expect(question).toHaveAttribute("aria-expanded", "false");

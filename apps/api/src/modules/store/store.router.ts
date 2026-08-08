@@ -78,6 +78,8 @@ export function storeRouter(deps: {
   jwt: JwtService;
   audit: AuditService;
   logger: Logger;
+  /** M7: platform-configured support mailbox (legal plane source of truth). */
+  supportEmail: string | null;
 }): ExpressRouter {
   const router = Router();
 
@@ -105,6 +107,7 @@ export function storeRouter(deps: {
           store,
           settings: settings[0] ?? null,
           subscription: sub[0] ?? null,
+          supportEmail: deps.supportEmail,
         };
       });
       res.status(200).json(successEnvelope(getRequestContext(), result));

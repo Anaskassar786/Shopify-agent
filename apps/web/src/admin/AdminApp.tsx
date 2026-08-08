@@ -8,6 +8,7 @@ import { AdminMerchantsView } from "./AdminMerchantsView";
 import { AdminOverviewView } from "./AdminOverviewView";
 import { AdminTicketsView } from "./AdminTicketsView";
 import { AdminActionsView } from "./AdminActionsView";
+import { AdminAccessReviewView } from "./AdminAccessReviewView";
 import { AdminAccountActionsView } from "./AdminAccountActionsView";
 import { openAdminSession } from "../lib/admin-queries";
 import {
@@ -274,6 +275,7 @@ function AdminShell({
           <Route path="/admin/tickets" element={<AdminTicketsView adminKey={adminKey} session={session} />} />
           <Route path="/admin/account-actions" element={<AdminAccountActionsView adminKey={adminKey} session={session} />} />
           <Route path="/admin/actions" element={<AdminActionsView adminKey={adminKey} />} />
+          <Route path="/admin/access-review" element={<AdminAccessReviewView adminKey={adminKey} />} />
           <Route path="*" element={<Navigate to="/admin/overview" replace />} />
         </Routes>
       </main>

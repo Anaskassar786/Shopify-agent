@@ -4,6 +4,7 @@ import { ExportsPage } from "./ExportsPage";
 import { AuditLogsPage } from "./AuditLogsPage";
 import { SupportPage } from "./SupportPage";
 import { pagedResponse, renderApp, type StubHandlers } from "../test-support/render";
+import { storeResponse } from "../test-support/fixtures";
 import type { AuditLogRow, ExportRowDto, SupportTicketsResponse, SupportTicketThreadResponse } from "../lib/api-types";
 
 /** M6 system surfaces: exports queue, support tickets, audit export action. */
@@ -155,6 +156,7 @@ describe("SupportPage — M6 tickets workspace", () => {
   function supportHandlers(): StubHandlers {
     return {
       get: {
+        "/api/v1/store": () => storeResponse(),
         "/api/v1/support/tickets": () => tickets,
         "/api/v1/support/tickets/tkt-1": () => thread,
       },
@@ -214,8 +216,43 @@ describe("SupportPage — M6 tickets workspace", () => {
     renderApp(<SupportPage />, {
       route: "/support",
       claims: { role: "VIEWER", perms: ["store:read"] },
+      handlers: { get: { "/api/v1/store": () => storeResponse() } },
     });
     expect(await screen.findByText("support@profittool.ai")).toBeInTheDocument();
     expect(screen.queryByText("Your conversations with the team")).not.toBeInTheDocument();
+  });
+
+  it("links every legal policy page (M7 legal plane) as unauthenticated, reviewer-verifiable surfaces", async () => {
+    renderApp(<SupportPage />, { route: "/support", handlers: supportHandlers() });
+    expect(await screen.findByText("Legal & policies")).toBeInTheDocument();
+    const expected: ReadonlyArray<[string, string]> = [
+      ["Privacy policy", "/legal/privacy"],
+      ["Terms of service", "/legal/terms"],
+      ["Refund policy", "/legal/refunds"],
+      ["Acceptable use", "/legal/acceptable-use"],
+      ["Security", "/legal/security"],
+    ];
+    for (const [label, href] of expected) {
+      const link = screen.getByRole("link", { name: new RegExp(label) });
+      expect(link).toHaveAttribute("href", href);
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    }
+  });
+
+  it("falls back to ticket-first copy when no support mailbox is configured", async () => {
+    renderApp(<SupportPage />, {
+      route: "/support",
+      handlers: {
+        get: {
+          "/api/v1/store": () => ({ ...storeResponse(), supportEmail: null }),
+        },
+      },
+    });
+    expect(
+      await screen.findByText(/every thread reaches the team directly/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/mailto|profittool\.ai/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Frequently asked")).toBeInTheDocument();
   });
 });

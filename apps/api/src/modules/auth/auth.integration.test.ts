@@ -95,6 +95,24 @@ describe("POST /api/v1/auth/session", () => {
     });
     await request(env.app).post("/api/v1/auth/session").send({ sessionToken: other }).expect(401);
   });
+
+  it("rate-limits credential-exchange brute force per identity with the typed 429 envelope (M7)", async () => {
+    // The app trusts one proxy hop, so X-Forwarded-For sets req.ip; a
+    // dedicated source IP keeps the 61-request burst out of the calling
+    // suite's own bucket (per-identity isolation by design).
+    const burnIp = { "X-Forwarded-For": "10.77.0.77" };
+    let last = await request(env.app).post("/api/v1/auth/session").set(burnIp).send({ sessionToken: "garbage-token-value" });
+    for (let i = 0; i < 61; i += 1) {
+      last = await request(env.app).post("/api/v1/auth/session").set(burnIp).send({ sessionToken: "garbage-token-value" });
+    }
+    expect(last.status).toBe(429);
+    expect(last.body.success).toBe(false);
+    expect(last.body.errors[0].code).toBe("RATE_LIMITED");
+    // The limit is per-identity: a different source IP still gets judged on
+    // credentials, not refused at the door (limiter honesty).
+    const fresh = await request(env.app).post("/api/v1/auth/session").set({ "X-Forwarded-For": "10.77.0.78" }).send({ sessionToken: "garbage-token-value" });
+    expect(fresh.status).toBe(401);
+  }, 30_000);
 });
 
 describe("GET /api/v1/auth/me", () => {

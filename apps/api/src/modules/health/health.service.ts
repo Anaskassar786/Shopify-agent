@@ -33,6 +33,14 @@ export interface HealthServiceDeps {
   readonly probeTimeoutMs?: number;
   /** Real DB connectivity probe; undefined → reported as skipped (not fabricated). */
   readonly dbProbe?: () => Promise<unknown>;
+  /** M7: cache/queue-broker probe (shared driver, P5 queue status). */
+  readonly cacheProbe?: () => Promise<unknown>;
+  /**
+   * M7: AI provider configuration truth (P5). A live model probe would cost
+   * real money per readiness hit, so readiness reports CONFIGURATION, named
+   * honestly — the provider's runtime health surfaces in AI activity views.
+   */
+  readonly aiConfigured?: boolean;
 }
 
 const DEFAULT_PROBE_TIMEOUT_MS = 2_000;
@@ -42,12 +50,16 @@ export class HealthService {
   private readonly startedAt: Date;
   private readonly probeTimeoutMs: number;
   private readonly dbProbe?: () => Promise<unknown>;
+  private readonly cacheProbe?: () => Promise<unknown>;
+  private readonly aiConfigured: boolean;
 
   constructor(deps: HealthServiceDeps) {
     this.version = deps.version;
     this.startedAt = new Date();
     this.probeTimeoutMs = deps.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
     if (deps.dbProbe !== undefined) this.dbProbe = deps.dbProbe;
+    if (deps.cacheProbe !== undefined) this.cacheProbe = deps.cacheProbe;
+    this.aiConfigured = deps.aiConfigured ?? false;
   }
 
   liveness(): LivenessReport {
@@ -60,7 +72,11 @@ export class HealthService {
   }
 
   async readiness(): Promise<ReadinessReport> {
-    const checks: DependencyCheckResult[] = [await this.checkDatabase()];
+    const checks: DependencyCheckResult[] = [
+      await this.checkDatabase(),
+      await this.checkCache(),
+      this.checkAiConfiguration(),
+    ];
     const ready = checks.every(
       (check) => check.status === HealthStatus.Ok || check.status === "skipped",
     );
@@ -86,6 +102,33 @@ export class HealthService {
         latencyMs: elapsedMs(start),
       };
     }
+  }
+
+  private async checkCache(): Promise<DependencyCheckResult> {
+    if (this.cacheProbe === undefined) {
+      return { name: "cache_queue", status: "skipped", reason: "cache driver not configured" };
+    }
+    const start = process.hrtime.bigint();
+    try {
+      await withTimeout(this.cacheProbe(), this.probeTimeoutMs);
+      return {
+        name: "cache_queue",
+        status: HealthStatus.Ok,
+        latencyMs: elapsedMs(start),
+      };
+    } catch {
+      return {
+        name: "cache_queue",
+        status: HealthStatus.Down,
+        latencyMs: elapsedMs(start),
+      };
+    }
+  }
+
+  private checkAiConfiguration(): DependencyCheckResult {
+    return this.aiConfigured
+      ? { name: "ai_provider", status: HealthStatus.Ok, reason: "configured" }
+      : { name: "ai_provider", status: "skipped", reason: "GEMINI_API_KEY not configured" };
   }
 }
 

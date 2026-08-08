@@ -11,6 +11,7 @@ export function AdminTabs(): ReactNode {
       <NavButton to="/admin/tickets" label="Tickets" />
       <NavButton to="/admin/account-actions" label="Account actions" />
       <NavButton to="/admin/actions" label="Action log" />
+      <NavButton to="/admin/access-review" label="Access review" />
     </nav>
   );
 }

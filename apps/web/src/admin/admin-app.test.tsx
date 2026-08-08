@@ -46,6 +46,8 @@ function makeFetchStub(accessOverrides: () => readonly unknown[] = () => []): Re
       return jsonEnvelope(200, envelope({ ticket: ADMIN_TICKETS.rows[0], messages: ADMIN_MESSAGES }));
     }
     if (url.startsWith("/api/v1/admin/tickets")) return jsonEnvelope(200, envelope(ADMIN_TICKETS));
+    if (url.startsWith("/api/v1/admin/access-review/sessions")) return jsonEnvelope(200, envelope(OPERATOR_SESSIONS));
+    if (url.startsWith("/api/v1/admin/access-review")) return jsonEnvelope(200, envelope(ACCESS_REVIEW));
     if (url.startsWith("/api/v1/admin/actions")) return jsonEnvelope(200, envelope(ADMIN_ACTIONS));
     if (url === "/api/v1/admin/session") {
       return jsonEnvelope(201, envelope({ token: SESSION_TOKEN, expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), operatorId: VALID_OPERATOR }));
@@ -103,6 +105,55 @@ const ADMIN_ACTIONS = [
     ip: "10.1.2.3",
     createdAt: "2026-08-07T08:00:00.000Z",
   },
+];
+
+const ACCESS_REVIEW = {
+  store: {
+    storeId: FIRST_STORE_ID,
+    name: "Brass City Lights",
+    shopDomain: "brass-city-lights.myshopify.com",
+    status: "ACTIVE",
+    installedAt: "2026-07-01T00:00:00.000Z",
+    uninstalledAt: null,
+  },
+  members: [
+    {
+      userId: "u-1",
+      email: "owner@brasscity.example",
+      fullName: "Rhea Brass",
+      status: "ACTIVE",
+      roleCode: "OWNER",
+      permissionCount: 24,
+      memberSince: "2026-07-01T00:00:00.000Z",
+      lastLoginAt: "2026-08-07T07:30:00.000Z",
+    },
+  ],
+  activeOverrides: [
+    {
+      id: "ovr-9",
+      kind: "COMP_ACCESS",
+      accessUntil: "2026-08-20T00:00:00.000Z",
+      grantedBy: "ops-review",
+      reason: "POS weekend bridge",
+      grantedAt: "2026-08-01T00:00:00.000Z",
+    },
+  ],
+  recentActions: [
+    {
+      id: "act-9",
+      operatorId: "ops-review",
+      action: "platform.admin.trial.extend",
+      targetType: "subscription",
+      targetId: "sub-1",
+      ip: "10.9.9.9",
+      createdAt: "2026-08-07T08:00:00.000Z",
+    },
+  ],
+};
+
+const OPERATOR_SESSIONS = [
+  { operatorId: "ops-review", ip: "10.9.9.9", createdAt: "2026-08-07T10:00:00.000Z" },
+  { operatorId: "ops-zoe", ip: null, createdAt: "2026-08-06T16:00:00.000Z" },
 ];
 
 const ACTIVE_OVERRIDE = {
@@ -387,6 +438,29 @@ describe("AdminApp (M6): step-up session gates every write", () => {
       expect(JSON.parse(String(init?.body))).toEqual({ reason: "Merchant fixed the card" });
     });
     expect(await screen.findByText("Override revoked")).toBeInTheDocument();
+  });
+
+  it("access review: per-store members/overrides/operator writes + the global session ledger", async () => {
+    vi.stubGlobal("fetch", makeFetchStub());
+    renderAdmin();
+    await unlock();
+
+    fireEvent.click(screen.getByRole("link", { name: "Access review" }));
+    // Global write-authority ledger renders without picking a store.
+    expect(await screen.findByText("Write-authority grants")).toBeInTheDocument();
+    expect(screen.getByText("10.9.9.9")).toBeInTheDocument();
+    expect(screen.getAllByText(/ops-review|ops-zoe/).length).toBeGreaterThanOrEqual(1);
+
+    fireEvent.change(screen.getByLabelText("Store for access review"), { target: { value: FIRST_STORE_ID } });
+    // Member breadth: owner row with role badge, permission breadth, sign-in evidence.
+    expect(await screen.findByText("Rhea Brass")).toBeInTheDocument();
+    expect(screen.getByText("owner@brasscity.example")).toBeInTheDocument();
+    expect(screen.getByText("OWNER")).toBeInTheDocument();
+    expect(screen.getByText("24 granted")).toBeInTheDocument();
+    // Live override with provenance.
+    expect(screen.getByText("POS weekend bridge")).toBeInTheDocument();
+    // Store-bound operator writes.
+    expect(screen.getByText("platform.admin.trial.extend")).toBeInTheDocument();
   });
 
   it("a stale/expired stored session is dropped on boot (still gated)", async () => {

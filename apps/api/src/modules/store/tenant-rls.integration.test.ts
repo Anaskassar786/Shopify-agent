@@ -17,6 +17,7 @@ import {
   signShopifySessionToken,
   stubShopifyHttp,
   TEST_SHOP,
+  TEST_SUPPORT_EMAIL,
   type TestEnvironment,
 } from "../../test-support/harness";
 
@@ -141,6 +142,9 @@ describe("HTTP tenant boundary: /api/v1/store", () => {
     expect(res.body.data.store.shopDomain).toBe(TEST_SHOP);
     expect(res.body.data.subscription.status).toBe("TRIALING");
     expect(res.body.data.settings).not.toBeNull();
+    // M7: the platform support mailbox travels alongside the store payload so
+    // the Support surface and legal pages share one configured source.
+    expect(res.body.data.supportEmail).toBe(TEST_SUPPORT_EMAIL);
   });
 
   it("a token minted for store B can never read store A through the API", async () => {

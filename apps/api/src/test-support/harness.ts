@@ -24,6 +24,8 @@ import {
 } from "@profit/sync";
 import { ShopifyBillingProvider, type BillingChargeProvider } from "@profit/billing";
 import { createApp } from "../app";
+import { createSpaHandler } from "../static/spa";
+import { legalRouter } from "../modules/legal/legal.router";
 import { loadEnv, type Env } from "../config/env";
 import { EncryptionService } from "@profit/crypto";
 import { createLogger, type Logger } from "@profit/logger";
@@ -69,6 +71,10 @@ import { createStoreCache } from "@profit/cache";
 
 export const TEST_SHOP = "demo-store.myshopify.com";
 export const API_KEY = "test_api_key";
+
+/** M7 legal-plane identity fixtures (production wiring reads env instead). */
+export const TEST_LEGAL_ENTITY = "Profit Tool AI Test Labs";
+export const TEST_SUPPORT_EMAIL = "support@profittest.invalid";
 export const API_SECRET = "test_api_secret";
 export const APP_URL = "https://app.profit.test";
 export const ACCESS_SECRET = "integration-access-secret";
@@ -102,7 +108,16 @@ function migrationsDir(): string {
   return resolve(here, "../../../../packages/db/drizzle");
 }
 
-export async function buildTestEnvironment(): Promise<TestEnvironment> {
+export interface TestEnvironmentOptions {
+  /**
+   * When set, the app is created with the production-shaped SPA mount (M7
+   * wiring contract: apiV1 → spa → 404 envelope). Dist fixture is caller-built
+   * (temp dir) so the web bundle is not a test dependency.
+   */
+  readonly spaDistDir?: string;
+}
+
+export async function buildTestEnvironment(options: TestEnvironmentOptions = {}): Promise<TestEnvironment> {
   const testDb = await createTestDatabase(migrationsDir());
   const db = testDb.db;
   await seedPlatformCatalogs(db);
@@ -143,6 +158,9 @@ export async function buildTestEnvironment(): Promise<TestEnvironment> {
   queue.register(AiRunJob, () => Promise.resolve());
   queue.register(AiExecuteEmailActionJob, () => Promise.resolve());
   queue.register(AiExecuteDiscountActionJob, () => Promise.resolve());
+  // Webhook consumers run in the worker process (apps/worker registers the
+  // real handler); the API harness mirrors the producer side of the boundary.
+  queue.register(WebhookProcessJob, () => Promise.resolve());
   await queue.start();
 
   const enqueueWebhookProcess = async (storeId: string, webhookLogId: string): Promise<void> => {
@@ -218,15 +236,27 @@ export async function buildTestEnvironment(): Promise<TestEnvironment> {
     }
   };
 
+  const spa =
+    options.spaDistDir !== undefined
+      ? createSpaHandler({ distDir: options.spaDistDir, shopifyApiKey: API_KEY, logger })
+      : undefined;
+
   const app = createApp({
     env,
     logger,
     healthService,
+    ...(spa !== undefined ? { spa } : {}),
     routers: {
       shopify: shopifyRouter({ oauth, webhooks, logger }),
+      legal: legalRouter({
+        cache,
+        entityName: TEST_LEGAL_ENTITY,
+        supportEmail: TEST_SUPPORT_EMAIL,
+        appUrl: APP_URL,
+      }),
       apiV1: {
-        auth: authRouter({ auth, jwt }),
-        store: storeRouter({ db, jwt, audit, logger }),
+        auth: authRouter({ auth, jwt, cache }),
+        store: storeRouter({ db, jwt, audit, logger, supportEmail: TEST_SUPPORT_EMAIL }),
         sync: syncRouter({ db, jwt, queue, persistence, cache }),
         analytics: analyticsRouter({
           db,

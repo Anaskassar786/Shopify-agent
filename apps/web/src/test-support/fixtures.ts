@@ -72,6 +72,7 @@ export function storeResponse(overrides: {
       currentPeriodEnd: "2026-09-04T10:00:00.000Z",
       planId: "plan-growth",
     },
+    supportEmail: "support@profittool.ai",
   };
 }
 

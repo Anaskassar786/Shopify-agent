@@ -14,6 +14,7 @@ import { parsePageParams } from "../../lib/http/pagination";
 import { requirePlatformAdmin } from "../../middleware/platform-admin.middleware";
 import type { AuditService } from "../audit/audit.service";
 import { adminPayloadHash, mintAdminSession, verifyAdminSession } from "./admin-session";
+import { AccessReviewService } from "./access-review.service";
 import { passThroughAutomationError } from "../automation-center/api-errors";
 
 /**
@@ -67,6 +68,7 @@ export function adminRouter(deps: {
   const billing = new BillingService(deps.db);
   const overrides = new AccessOverrideService(deps.db);
   const support = new SupportService(deps.db);
+  const accessReview = new AccessReviewService(deps.db);
 
   router.use(requirePlatformAdmin({ platformAdminKey: deps.platformAdminKey, audit: deps.audit }));
 
@@ -355,6 +357,33 @@ export function adminRouter(deps: {
         .limit(pageSize)
         .offset((page - 1) * pageSize);
       res.status(200).json(successEnvelope(getRequestContext(), rows));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /* ─── M7: SOC-2-lite access review (read-only; key gate suffices) ── */
+
+  /** Global operator-session ledger: who held admin WRITE authority, when, from where. */
+  router.get("/access-review/sessions", async (_req, res, next) => {
+    try {
+      const rows = await accessReview.operatorSessions();
+      res.status(200).json(successEnvelope(getRequestContext(), rows));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /** Per-store access review: members × roles × permissions, live overrides, recent operator writes. */
+  router.get("/access-review", async (req, res, next) => {
+    try {
+      const storeId = req.query["storeId"];
+      if (typeof storeId !== "string" || storeId === "") {
+        throw new ValidationError("storeId query parameter is required");
+      }
+      const review = await accessReview.reviewStore(storeId);
+      if (review === null) throw new NotFoundError("store", storeId);
+      res.status(200).json(successEnvelope(getRequestContext(), review));
     } catch (error) {
       next(error);
     }
