@@ -33,19 +33,34 @@ pair `SUPPORT_EMAIL` + `LEGAL_ENTITY_NAME`.
 
 1. Apply migrations: `pnpm --filter @profit/db run migrate` (idempotent;
    run BEFORE app rollout).
-2. Deploy API + worker + web (single build artifact set; `APP_VERSION` pinned
-   to the tag).
-3. Render the Shopify managed config for the target host and deploy it:
+2. Railway deploy contract (two services from the same repo, root build/start):
+
+   - **Build command (both services):** `pnpm build`
+   - **API service start:** `node apps/api/dist/index.js`
+   - **Worker service start:** `pnpm run start:worker` (i.e. `node
+     apps/worker/dist/index.js`)
+   - **API health check:** `GET /live` → 200
+   - The worker is a **separate Railway service** that shares the same repo
+     and the same root build. Both services run the same `pnpm build`; the
+     only difference is the start command. The API serves HTTP; the worker
+     is a long-running BullMQ consumer with no HTTP listener beyond its own
+     health server (internal).
+   - `APP_VERSION` pinned to the tag for both services.
+
+3. Deploy API + worker + web (single build artifact set per service; the
+   artifact for the API service is `apps/api/dist`, the artifact for the
+   worker service is `apps/worker/dist`).
+4. Render the Shopify managed config for the target host and deploy it:
    `APP_URL=https://<prod-host> pnpm --filter @profit/api run manifest:render -- --out shopify.app.toml`
    then `shopify app deploy --client-id <partner-app>` (ADR 30; credentials
    live in the Partner Dashboard, never in the repo).
-4. Smoke: `GET /live` → 200, `GET /ready` → `ready` (four checks in the
+5. Smoke: `GET /live` → 200, `GET /ready` → `ready` (four checks in the
    payload: `database` + `cache_queue` live probes, `ai_provider` + `shopify`
    configuration truth; a `skipped` configuration check is expected when the
    capability is intentionally unconfigured and never gates),
    `GET /legal/privacy` → 200 HTML with the configured entity + support email,
    embedded boot in a dev store admin.
-5. Ops plane smoke (1.1.1): `GET /api/v1/admin/ops/flags` →
+6. Ops plane smoke (1.1.1): `GET /api/v1/admin/ops/flags` →
    `{"maintenance": null}` (or the live state), `GET /api/v1/admin/ops/jobs`
    → all five status buckets present; confirm `SENTRY_DSN` is set if error
    capture is desired (absent = documented no-op).

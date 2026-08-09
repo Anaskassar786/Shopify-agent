@@ -59,6 +59,9 @@ importers:
       '@profit/types':
         specifier: workspace:*
         version: link:../../packages/types
+      bullmq:
+        specifier: ^5.34.0
+        version: 5.81.3
       compression:
         specifier: ^1.8.0
         version: 1.8.1
@@ -68,21 +71,39 @@ importers:
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
+      drizzle-orm:
+        specifier: ^0.38.3
+        version: 0.38.4(@electric-sql/pglite@0.2.17)(@types/react@19.2.18)(postgres@3.4.9)(react@19.2.8)
       express:
         specifier: ^4.21.2
         version: 4.22.2
       helmet:
         specifier: ^8.1.0
         version: 8.3.0
+      ioredis:
+        specifier: ^5.4.2
+        version: 5.11.1
       jose:
         specifier: ^5.9.6
         version: 5.10.0
+      nodemailer:
+        specifier: ^6.9.16
+        version: 6.10.1
+      pino:
+        specifier: ^9.6.0
+        version: 9.14.0
+      postgres:
+        specifier: ^3.4.5
+        version: 3.4.9
       ws:
         specifier: ^8.18.0
         version: 8.21.2
       zod:
         specifier: ^3.24.1
         version: 3.25.76
+      zod-to-json-schema:
+        specifier: ^3.25.2
+        version: 3.25.2(zod@3.25.76)
     devDependencies:
       '@types/compression':
         specifier: ^1.8.1
@@ -238,12 +259,33 @@ importers:
       '@profit/types':
         specifier: workspace:*
         version: link:../../packages/types
+      bullmq:
+        specifier: ^5.34.0
+        version: 5.81.3
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
+      drizzle-orm:
+        specifier: ^0.38.3
+        version: 0.38.4(@electric-sql/pglite@0.2.17)(@types/react@19.2.18)(postgres@3.4.9)(react@19.2.8)
+      ioredis:
+        specifier: ^5.4.2
+        version: 5.11.1
+      nodemailer:
+        specifier: ^6.9.16
+        version: 6.10.1
+      pino:
+        specifier: ^9.6.0
+        version: 9.14.0
+      postgres:
+        specifier: ^3.4.5
+        version: 3.4.9
       zod:
         specifier: ^3.24.1
         version: 3.25.76
+      zod-to-json-schema:
+        specifier: ^3.25.2
+        version: 3.25.2(zod@3.25.76)
     devDependencies:
       '@types/node':
         specifier: ^22.10.2

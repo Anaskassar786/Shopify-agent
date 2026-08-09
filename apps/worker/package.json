@@ -25,8 +25,15 @@
     "@profit/shopify": "workspace:*",
     "@profit/sync": "workspace:*",
     "@profit/types": "workspace:*",
+    "bullmq": "^5.34.0",
     "dotenv": "^16.4.7",
-    "zod": "^3.24.1"
+    "drizzle-orm": "^0.38.3",
+    "ioredis": "^5.4.2",
+    "nodemailer": "^6.9.16",
+    "pino": "^9.6.0",
+    "postgres": "^3.4.5",
+    "zod": "^3.24.1",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
