@@ -1,0 +1,76 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1785918490086,
+      "tag": "0000_illegal_snowbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785928537100,
+      "tag": "0001_m1_shopify_core",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785928537943,
+      "tag": "0002_m1_rls_tenant_isolation",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785934855750,
+      "tag": "0003_m2_data_plane",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785944412128,
+      "tag": "0004_m3_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785985461598,
+      "tag": "0005_m4_ai_engine",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786003969116,
+      "tag": "0006_m5_billing_growth",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786031789294,
+      "tag": "0007_m6_automation_campaigns",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786182401774,
+      "tag": "0008_m8_phase3_copilot_reports",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786200025740,
+      "tag": "0009_launch_ops_flags",
+      "breakpoints": true
+    }
+  ]
+}

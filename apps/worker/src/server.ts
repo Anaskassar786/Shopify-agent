@@ -1,0 +1,340 @@
+import type { Server } from "node:http";
+import { createCache, createPubSub } from "@profit/cache";
+import { EncryptionService } from "@profit/crypto";
+import { createDbClient, probeDbConnection } from "@profit/db";
+import { createLogger } from "@profit/logger";
+import { createErrorMonitor } from "@profit/monitoring";
+import { createJobQueue, JobPersistence } from "@profit/queue";
+import {
+  AnalyticsNightlyTickJob,
+  AnalyticsRefreshJob,
+  MaintenanceDailyTickJob,
+  SCHEDULES,
+  ShopifyEnsureWebhooksJob,
+  SyncModuleJob,
+  SyncScheduledTickJob,
+  SyncStoreFullJob,
+  WebhookProcessJob,
+} from "@profit/sync";
+import {
+  AiExecuteDiscountActionJob,
+  AiExecuteEmailActionJob,
+  AiMeasureTickJob,
+  AiNightlyTickJob,
+  AiRunJob,
+  GeminiProvider,
+  SmtpEmailSender,
+} from "@profit/ai";
+import {
+  BillingChurnScanTickJob,
+  BillingReconcileTickJob,
+  BillingTrialTickJob,
+  BillingUsageRollupTickJob,
+} from "@profit/billing";
+import {
+  AutomationTickJob,
+  CampaignDispatchJob,
+  CampaignSendBatchJob,
+  ExportGenerateJob,
+  SupportNotifyJob,
+  TwilioSmsSender,
+  WorkflowRunResumeJob,
+  WorkflowRunStartJob,
+} from "@profit/automation";
+import { ModelTier } from "@profit/types";
+import { loadWorkerEnv, type WorkerEnv } from "./config/env";
+import type { WorkerDeps } from "./handlers/deps";
+import { analyticsRefreshHandler, analyticsNightlyTickHandler, ensureWebhooksHandler, maintenanceDailyTickHandler, syncScheduledTickHandler } from "./handlers/maintenance.handlers";
+import { fullSyncHandler, moduleSyncHandler } from "./handlers/sync.handlers";
+import { webhookProcessHandler } from "./handlers/webhook.handlers";
+import { aiMeasureTickHandler, aiNightlyTickHandler, aiRunHandler } from "./handlers/ai.handlers";
+import { executeDiscountActionHandler, executeEmailActionHandler } from "./handlers/execution.handlers";
+import {
+  billingChurnScanTickHandler,
+  billingReconcileTickHandler,
+  billingTrialTickHandler,
+  billingUsageRollupTickHandler,
+} from "./handlers/billing.handlers";
+import {
+  automationTickHandler,
+  campaignDispatchHandler,
+  campaignSendBatchHandler,
+  exportGenerateHandler,
+  supportNotifyHandler,
+  workflowRunResumeHandler,
+  workflowRunStartHandler,
+} from "./handlers/automation.handlers";
+import { reportsGenerateHandler, reportsTickHandler } from "./handlers/reports.handlers";
+import { ReportsGenerateJob, ReportsTickJob } from "@profit/reporting";
+import { startHealthServer } from "./health/server";
+
+export interface RunningWorker {
+  readonly env: WorkerEnv;
+  readonly deps: WorkerDeps;
+  readonly healthServer: Server;
+  readonly shutdown: () => Promise<void>;
+}
+
+/**
+ * Register every data-plane handler on the queue (P3 worker taxonomy: sync,
+ * webhooks, analytics, maintenance live HERE; ai/email/sms/discount workers
+ * land with their milestones). Registration is a pure wiring function so the
+ * test harness builds the identical graph against PGlite + in-process queue.
+ */
+export function registerWorkerJobs(deps: WorkerDeps): void {
+  deps.queue.register(SyncStoreFullJob, fullSyncHandler(deps));
+  deps.queue.register(SyncModuleJob, moduleSyncHandler(deps));
+  deps.queue.register(WebhookProcessJob, webhookProcessHandler(deps));
+  deps.queue.register(AnalyticsRefreshJob, analyticsRefreshHandler(deps));
+  deps.queue.register(ShopifyEnsureWebhooksJob, ensureWebhooksHandler(deps));
+  deps.queue.register(SyncScheduledTickJob, syncScheduledTickHandler(deps));
+  deps.queue.register(AnalyticsNightlyTickJob, analyticsNightlyTickHandler(deps));
+  deps.queue.register(MaintenanceDailyTickJob, maintenanceDailyTickHandler(deps));
+  // M4 AI plane
+  deps.queue.register(AiRunJob, aiRunHandler(deps));
+  deps.queue.register(AiNightlyTickJob, aiNightlyTickHandler(deps));
+  deps.queue.register(AiMeasureTickJob, aiMeasureTickHandler(deps));
+  deps.queue.register(AiExecuteEmailActionJob, executeEmailActionHandler(deps));
+  deps.queue.register(AiExecuteDiscountActionJob, executeDiscountActionHandler(deps));
+  // M5 billing/growth plane
+  deps.queue.register(BillingTrialTickJob, billingTrialTickHandler(deps));
+  deps.queue.register(BillingUsageRollupTickJob, billingUsageRollupTickHandler(deps));
+  deps.queue.register(BillingReconcileTickJob, billingReconcileTickHandler(deps));
+  deps.queue.register(BillingChurnScanTickJob, billingChurnScanTickHandler(deps));
+  // M6 automation center plane
+  deps.queue.register(AutomationTickJob, automationTickHandler(deps));
+  deps.queue.register(WorkflowRunStartJob, workflowRunStartHandler(deps));
+  deps.queue.register(WorkflowRunResumeJob, workflowRunResumeHandler(deps));
+  deps.queue.register(CampaignDispatchJob, campaignDispatchHandler(deps));
+  deps.queue.register(CampaignSendBatchJob, campaignSendBatchHandler(deps));
+  deps.queue.register(ExportGenerateJob, exportGenerateHandler(deps));
+  deps.queue.register(SupportNotifyJob, supportNotifyHandler(deps));
+  // M8 enterprise reporting plane
+  deps.queue.register(ReportsTickJob, reportsTickHandler(deps));
+  deps.queue.register(ReportsGenerateJob, reportsGenerateHandler(deps));
+}
+
+/** Repeatable schedules (P3 scheduler). BullMQ dedupes by scheduleId; memory driver mirrors semantics. */
+export async function registerWorkerSchedules(deps: WorkerDeps): Promise<void> {
+  await deps.queue.upsertSchedule({
+    scheduleId: "sync.scheduled-tick",
+    definition: SyncScheduledTickJob,
+    everyMs: deps.env.SYNC_INCREMENTAL_INTERVAL_MS,
+    payload: {},
+  });
+  await deps.queue.upsertSchedule({
+    scheduleId: "analytics.nightly-tick",
+    definition: AnalyticsNightlyTickJob,
+    everyMs: deps.env.ANALYTICS_REFRESH_INTERVAL_MS,
+    payload: {},
+  });
+  await deps.queue.upsertSchedule({
+    scheduleId: "maintenance.daily-tick",
+    definition: MaintenanceDailyTickJob,
+    everyMs: SCHEDULES.webhookEnsureEveryMs,
+    payload: {},
+  });
+  await deps.queue.upsertSchedule({
+    scheduleId: "ai.nightly-tick",
+    definition: AiNightlyTickJob,
+    everyMs: deps.env.AI_RUN_INTERVAL_MS,
+    payload: {},
+  });
+  await deps.queue.upsertSchedule({
+    scheduleId: "ai.measure-tick",
+    definition: AiMeasureTickJob,
+    everyMs: deps.env.AI_MEASURE_INTERVAL_MS,
+    payload: {},
+  });
+  // M5 billing/growth plane: hourly trial-journey + usage rollups, daily
+  // charge reconcile (Shopify's billing is pull-only) + churn scan.
+  await deps.queue.upsertSchedule({
+    scheduleId: "billing.trial-tick",
+    definition: BillingTrialTickJob,
+    everyMs: deps.env.TRIAL_LIFECYCLE_INTERVAL_MS,
+    payload: {},
+  });
+  await deps.queue.upsertSchedule({
+    scheduleId: "billing.usage-rollup-tick",
+    definition: BillingUsageRollupTickJob,
+    everyMs: deps.env.USAGE_ROLLUP_INTERVAL_MS,
+    payload: {},
+  });
+  await deps.queue.upsertSchedule({
+    scheduleId: "billing.reconcile-tick",
+    definition: BillingReconcileTickJob,
+    everyMs: deps.env.BILLING_RECONCILE_INTERVAL_MS,
+    payload: {},
+  });
+  await deps.queue.upsertSchedule({
+    scheduleId: "billing.churn-scan-tick",
+    definition: BillingChurnScanTickJob,
+    everyMs: deps.env.CHURN_SCAN_INTERVAL_MS,
+    payload: {},
+  });
+  // M6: one heartbeat drives workflow schedules, delay resumes, campaign
+  // dispatches and export expiry — leaf fan-out carries its own dedupe ids.
+  await deps.queue.upsertSchedule({
+    scheduleId: "automation.tick",
+    definition: AutomationTickJob,
+    everyMs: deps.env.AUTOMATION_TICK_INTERVAL_MS,
+    payload: {},
+  });
+  // M8: due-cadence report convergence (6h default; merchant schedules are
+  // data, the tick only converges what the settings declare due).
+  await deps.queue.upsertSchedule({
+    scheduleId: "reports.tick",
+    definition: ReportsTickJob,
+    everyMs: deps.env.REPORTS_TICK_INTERVAL_MS,
+    payload: {},
+  });
+}
+
+export async function startWorker(): Promise<RunningWorker> {
+  const env = loadWorkerEnv();
+  const logger = createLogger({ level: env.LOG_LEVEL, service: "worker", environment: env.NODE_ENV });
+
+  // Error capture (ADR 38): real Sentry adapter when SENTRY_DSN is set,
+  // documented no-op otherwise. Best-effort delivery — bounded (1.5s) and
+  // can never crash the worker itself.
+  const errorMonitor = createErrorMonitor({
+    dsn: env.SENTRY_DSN,
+    release: env.APP_VERSION,
+    environment: env.NODE_ENV,
+    logger,
+  });
+  process.on("unhandledRejection", (reason: unknown) => {
+    logger.error({ err: reason }, "worker.unhandled_rejection");
+    void errorMonitor.captureException(reason, { service: "worker" });
+  });
+  process.once("uncaughtException", (error: unknown) => {
+    logger.fatal({ err: error }, "worker.uncaught_exception");
+    void errorMonitor
+      .captureException(error, { service: "worker" })
+      .finally(() => process.exit(1));
+  });
+
+  if (env.DATABASE_URL === undefined || env.ENCRYPTION_KEY === undefined) {
+    throw new Error("worker requires DATABASE_URL and ENCRYPTION_KEY to start");
+  }
+
+  const db = createDbClient({ url: env.DATABASE_URL, maxConnections: 8 });
+  const encryption = EncryptionService.create(env.ENCRYPTION_KEY, env.ENCRYPTION_KEY_PREVIOUS);
+  const cache = createCache({ logger, redisUrl: env.REDIS_URL });
+  const pubsub = createPubSub({ logger, redisUrl: env.REDIS_URL });
+  const queue = createJobQueue({
+    logger,
+    redisUrl: env.REDIS_URL,
+    concurrency: env.WORKER_CONCURRENCY,
+  });
+  const persistence = new JobPersistence(db.db, logger);
+
+  // M4: provider + email sender construct ONLY when fully configured —
+  // null means "capability unavailable" (failsafe), which services surface
+  // honestly (run lands PROVIDER_UNAVAILABLE / tool reports unavailable).
+  const aiProvider =
+    env.GEMINI_API_KEY !== undefined
+      ? new GeminiProvider({
+          apiKey: env.GEMINI_API_KEY,
+          models: {
+            [ModelTier.Triage]: env.AI_DEFAULT_GEMINI_MODEL,
+            [ModelTier.Standard]: env.AI_DEFAULT_GEMINI_MODEL,
+            [ModelTier.Deep]: env.AI_DEFAULT_GEMINI_MODEL,
+          },
+        })
+      : null;
+  const smtpConfigured =
+    env.SMTP_HOST !== undefined &&
+    env.SMTP_USER !== undefined &&
+    env.SMTP_PASSWORD !== undefined;
+  const emailSender = smtpConfigured
+    ? new SmtpEmailSender({
+        host: env.SMTP_HOST as string,
+        port: env.SMTP_PORT,
+        user: env.SMTP_USER as string,
+        password: env.SMTP_PASSWORD as string,
+        fromAddress: env.EMAIL_FROM,
+        fromName: "Profit Tool AI",
+      })
+    : null;
+  if (aiProvider === null) logger.warn("GEMINI_API_KEY missing — AI runs will land PROVIDER_UNAVAILABLE");
+  if (emailSender === null) logger.warn("SMTP incomplete — email tool will report itself unavailable");
+
+  // M6: SMS channel (Twilio) + tracking link config follow the same failsafe
+  // rule — partial config means "capability unavailable", never "crash".
+  const twilioConfigured =
+    env.SMS_TWILIO_ACCOUNT_SID !== undefined &&
+    env.SMS_TWILIO_AUTH_TOKEN !== undefined &&
+    env.SMS_TWILIO_FROM_NUMBER !== undefined;
+  const smsSender = twilioConfigured
+    ? new TwilioSmsSender({
+        accountSid: env.SMS_TWILIO_ACCOUNT_SID as string,
+        authToken: env.SMS_TWILIO_AUTH_TOKEN as string,
+        fromNumber: env.SMS_TWILIO_FROM_NUMBER as string,
+      })
+    : null;
+  if (smsSender === null) logger.warn("Twilio incomplete — SMS steps/sends will report themselves unavailable");
+  const trackingSecret = env.TRACKING_SIGNING_SECRET ?? null;
+  // Tracking URLs must resolve publicly to the API origin (pixel + redirects).
+  if (trackingSecret === null) logger.warn("TRACKING_SIGNING_SECRET missing — campaign links render untracked");
+  const trackingBaseUrl = env.TRACKING_PUBLIC_BASE_URL ?? env.SHOPIFY_APP_URL ?? "http://localhost:8080";
+
+  const deps: WorkerDeps = {
+    env, logger, db, queue, persistence, cache, pubsub, encryption,
+    aiProvider, emailSender,
+    smsSender,
+    trackingSecret,
+    trackingBaseUrl,
+  };
+
+  persistence.attach(queue);
+  registerWorkerJobs(deps);
+  await queue.start();
+
+  let queueStarted = true;
+  const healthServer = startHealthServer({
+    logger,
+    port: env.PORT,
+    probes: {
+      database: async () => {
+        await probeDbConnection(db.sql);
+      },
+      queueStarted: () => queueStarted,
+    },
+  });
+
+  await registerWorkerSchedules(deps);
+  logger.info({ port: env.PORT, concurrency: env.WORKER_CONCURRENCY }, "worker.started");
+
+  let shuttingDown = false;
+  const shutdown = async (): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    queueStarted = false;
+    logger.info("worker.shutdown.started");
+    await new Promise<void>((resolve) => {
+      healthServer.close(() => resolve());
+    });
+    await queue.close();
+    if (emailSender !== null) await emailSender.close();
+    await cache.close();
+    await pubsub.close();
+    await db.close();
+    logger.info("worker.shutdown.complete");
+  };
+
+  process.once("SIGTERM", () => {
+    shutdown().catch((error: unknown) => {
+      logger.error({ err: error }, "worker.shutdown.failed");
+      process.exitCode = 1;
+    });
+  });
+  process.once("SIGINT", () => {
+    shutdown().catch((error: unknown) => {
+      logger.error({ err: error }, "worker.shutdown.failed");
+      process.exitCode = 1;
+    });
+  });
+
+  return { env, deps, healthServer, shutdown };
+}

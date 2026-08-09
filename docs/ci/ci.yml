@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "arena/*"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck · Test · Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies (locked)
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript checks (P6 gate)
+        run: pnpm -r run typecheck
+
+      - name: All tests with per-package coverage gates (P6 ≥80/75)
+        # Every package runs its own vitest --coverage with threshold gates
+        # (api, worker, queue, cache, shopify, crypto, logger, types, db, sync).
+        run: pnpm -r run test
+
+      - name: Build all deployables
+        run: pnpm -r run build
+
+      - name: Verify migrations generate cleanly (P2: migrations only)
+        run: pnpm --filter @profit/db run generate -- --custom
+        env:
+          DATABASE_URL: postgres://localhost/unused-for-generate
+
+  integration:
+    name: Integration (Postgres + Redis)
+    runs-on: ubuntu-latest
+    needs: verify
+    if: github.event_name == 'push'
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: profit
+          POSTGRES_PASSWORD: profit
+          POSTGRES_DB: profit_tool_ai_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U profit -d profit_tool_ai_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Apply migrations against real Postgres
+        run: pnpm --filter @profit/db run migrate
+        env:
+          DATABASE_URL: postgres://profit:profit@localhost:5432/profit_tool_ai_test
+
+      - name: BullMQ driver tests against real Redis
+        # @profit/queue's bullmq.driver suite is Redis-gated (self-skips without
+        # REDIS_URL) — this job is where it actually executes.
+        run: pnpm --filter @profit/queue run test
+        env:
+          REDIS_URL: redis://localhost:6379

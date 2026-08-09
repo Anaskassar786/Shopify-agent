@@ -1,0 +1,39 @@
+{
+  "name": "@profit/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@profit/ai": "workspace:*",
+    "@profit/automation": "workspace:*",
+    "@profit/billing": "workspace:*",
+    "@profit/cache": "workspace:*",
+    "@profit/crypto": "workspace:*",
+    "@profit/db": "workspace:*",
+    "@profit/logger": "workspace:*",
+    "@profit/monitoring": "workspace:*",
+    "@profit/notifications": "workspace:*",
+    "@profit/queue": "workspace:*",
+    "@profit/reporting": "workspace:*",
+    "@profit/shopify": "workspace:*",
+    "@profit/sync": "workspace:*",
+    "@profit/types": "workspace:*",
+    "dotenv": "^16.4.7",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@vitest/coverage-v8": "^2.1.8",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

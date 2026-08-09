@@ -1,0 +1,48 @@
+@import "tailwindcss";
+@import "@profit/ui/tokens.css";
+
+/* Scan workspace sources for utility usage (Tailwind v4). */
+@source "../../packages/ui/src/**/*.{ts,tsx}";
+
+/* App-wide base: token surface + typography defaults. */
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background-color: var(--color-canvas);
+  }
+  body {
+    @apply bg-canvas text-foreground antialiased;
+  }
+  ::selection {
+    background: var(--color-primary-soft);
+  }
+  /* P9 background-sync indicator visibility: scrollbars stay subtle. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-strong) transparent;
+  }
+}
+
+@layer utilities {
+  /* Modal entrance keyed by the overlay components. */
+  @keyframes pf-modal-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  @keyframes pf-toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}

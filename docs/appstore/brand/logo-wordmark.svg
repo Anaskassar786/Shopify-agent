@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="96" viewBox="0 0 620 96" role="img" aria-label="PROFIT TOOL AI">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7B76FA"/>
+      <stop offset="1" stop-color="#4338CA"/>
+    </linearGradient>
+  </defs>
+  <rect width="96" height="96" rx="24" fill="url(#bg)"/>
+  <g fill="#C7D2FE">
+    <rect x="24" y="52" width="10" height="20" rx="3"/>
+    <rect x="38" y="44" width="10" height="28" rx="3"/>
+    <rect x="52" y="34" width="10" height="38" rx="3"/>
+  </g>
+  <path d="M27 51 L44 36 L53 43 L70 27" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M60 26 H71 V37" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <text x="128" y="60" font-family="Inter, ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="38" font-weight="700" letter-spacing="3" fill="#F8FAFC">PROFIT TOOL AI</text>
+</svg>

@@ -1,0 +1,492 @@
+import { randomUUID } from "node:crypto";
+import type { Server } from "node:http";
+import type { PubSubPort } from "@profit/cache";
+import { Router } from "express";
+import { createCache, createPubSub, createStoreCache } from "@profit/cache";
+import { legalRouter } from "./modules/legal/legal.router";
+import { NotificationService } from "@profit/notifications";
+import { createDbClient, probeDbConnection, type DbClient } from "@profit/db";
+import { GeminiProvider, SmtpEmailSender } from "@profit/ai";
+import { EngagementEventKind, Environment, ModelTier } from "@profit/types";
+import { createJobQueue, JobPersistence } from "@profit/queue";
+import {
+  resolveStoreAdminContext,
+  ShopifyEnsureWebhooksJob,
+  SyncStoreFullJob,
+  WebhookProcessJob,
+} from "@profit/sync";
+import {
+  EngagementService,
+  ShopifyBillingProvider,
+  type BillingChargeProvider,
+} from "@profit/billing";
+import { createApp, type AppRouters } from "./app";
+import { loadEnv, requireEnv, type Env } from "./config/env";
+import { EncryptionService } from "@profit/crypto";
+import { createLogger, type Logger } from "@profit/logger";
+import { AuditService } from "./modules/audit/audit.service";
+import { AuthService } from "./modules/auth/auth.service";
+import { JwtService } from "./modules/auth/jwt.service";
+import { authRouter } from "./modules/auth/auth.router";
+import { HealthService } from "./modules/health/health.service";
+import { ShopifyOauthService } from "./modules/shopify/oauth.service";
+import { ShopifyWebhookService } from "./modules/shopify/webhooks/webhook.service";
+import { shopifyRouter } from "./modules/shopify/shopify.router";
+import { storeRouter } from "./modules/store/store.router";
+import { syncRouter } from "./modules/sync/sync.router";
+import { analyticsRouter } from "./modules/analytics/analytics.router";
+import { auditLogsRouter } from "./modules/audit/audit.router";
+import { subscriptionRouter } from "./modules/billing/subscription.router";
+import { billingRouter } from "./modules/billing/billing.router";
+import { engagementRouter } from "./modules/billing/engagement.router";
+import { adminRouter } from "./modules/admin/admin.router";
+import { notificationsRouter } from "./modules/notifications/notifications.router";
+import { recommendationsRouter } from "./modules/ai/recommendations.router";
+import { aiRouter } from "./modules/ai/ai.router";
+import { copilotRouter } from "./modules/copilot/copilot.router";
+import { reportsRouter } from "./modules/reports/reports.router";
+import { automationRouter } from "./modules/ai/automation.router";
+import { searchRouter } from "./modules/search/search.router";
+import { workflowsRouter } from "./modules/automation-center/workflows.router";
+import { campaignsRouter } from "./modules/automation-center/campaigns.router";
+import { exportsRouter } from "./modules/automation-center/exports.router";
+import { supportRouter } from "./modules/automation-center/support.router";
+import { trackingRouter } from "./modules/automation-center/tracking.router";
+import { maintenanceModeGuard } from "./middleware/maintenance.middleware";
+import { OpsFlagsService } from "./modules/ops/ops-flags.service";
+import { createErrorMonitor } from "@profit/monitoring";
+import { createRealtimeGateway } from "./modules/realtime/gateway";
+import { createSpaHandler } from "./static/spa";
+import {
+  customersRouter,
+  inventoryRouter,
+  ordersRouter,
+  productsRouter,
+} from "./modules/catalog/catalog.router";
+
+export interface RunningServer {
+  readonly server: Server;
+  readonly env: Env;
+  readonly logger: Logger;
+  readonly shutdown: () => Promise<void>;
+}
+
+const HOST = "0.0.0.0";
+
+/**
+ * Composition root (P1: dependency injection — modules never construct their
+ * own clients). Everything is built here from validated env, wired into the
+ * app, and owned through the shutdown lifecycle.
+ */
+export async function startServer(): Promise<RunningServer> {
+  const env = loadEnv();
+  const logger = createLogger({
+    level: env.LOG_LEVEL,
+    service: "api",
+    environment: env.NODE_ENV,
+  });
+
+  // Error capture (ADR 38): real Sentry adapter when SENTRY_DSN is set,
+  // documented no-op otherwise. Process-level capture is best-effort —
+  // delivery is bounded (1.5s) and can never crash the API itself.
+  const errorMonitor = createErrorMonitor({
+    dsn: env.SENTRY_DSN,
+    release: env.APP_VERSION,
+    environment: env.NODE_ENV,
+    logger,
+  });
+  process.on("unhandledRejection", (reason: unknown) => {
+    logger.error({ err: reason }, "api.unhandled_rejection");
+    void errorMonitor.captureException(reason, { service: "api" });
+  });
+  process.once("uncaughtException", (error: unknown) => {
+    logger.fatal({ err: error }, "api.uncaught_exception");
+    void errorMonitor
+      .captureException(error, { service: "api" })
+      .finally(() => process.exit(1));
+  });
+
+  const db: DbClient | undefined =
+    env.DATABASE_URL !== undefined
+      ? createDbClient({ url: env.DATABASE_URL, maxConnections: 10 })
+      : undefined;
+  if (db === undefined) {
+    logger.warn("DATABASE_URL not configured — readiness will report the database as skipped");
+  }
+
+  // Cache driver lives at composition-root scope (M7): readiness probes, the
+  // legal-plane rate limiter and every router share ONE instance, and the
+  // shutdown path finally closes it (the router-local one was never closed).
+  const cache = createCache({ logger, redisUrl: env.REDIS_URL });
+
+  const healthService = new HealthService({
+    version: env.APP_VERSION,
+    ...(db !== undefined ? { dbProbe: () => probeDbConnection(db.sql) } : {}),
+    cacheProbe: async () => {
+      const key = "health:readiness-probe";
+      await cache.set(key, Date.now(), 5);
+      await cache.get(key);
+    },
+    aiConfigured: env.GEMINI_API_KEY !== undefined,
+    shopifyConfigured:
+      env.SHOPIFY_API_KEY !== undefined &&
+      env.SHOPIFY_API_SECRET !== undefined &&
+      env.SHOPIFY_APP_URL !== undefined &&
+      env.SHOPIFY_SCOPES !== undefined,
+  });
+
+  const pubsub = createPubSub({ logger, redisUrl: env.REDIS_URL });
+  const routers = buildRouters(env, logger, db, { pubsub, cache });
+
+  // M3: embedded web app hosting (no-op when the bundle is not present).
+  // The mount is passed INTO createApp so it sits between the API router and
+  // the 404 envelope — appending it afterwards would starve it behind
+  // notFoundMiddleware (M7 wiring fix; see app.ts).
+  const spa = createSpaHandler({
+    distDir: env.WEB_DIST_DIR ?? new URL("../../web/dist", import.meta.url).pathname,
+    shopifyApiKey: env.SHOPIFY_API_KEY,
+    logger,
+  });
+  const app = createApp({ env, logger, healthService, routers, spa, errorMonitor });
+
+  // M3: realtime gateway — JWT-authed WS fan-out of tenant pub/sub events.
+  const gateway = createRealtimeGateway({
+    jwt: new JwtService({
+      accessSecret: requireEnv(env, "JWT_SECRET"),
+      accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
+    }),
+    pubsub,
+    logger,
+  });
+
+  const server = await new Promise<Server>((resolve, reject) => {
+    const instance = app.listen(env.PORT, HOST, () => resolve(instance));
+    instance.on("error", reject);
+  });
+
+  gateway.attach(server);
+
+  logger.info({ host: HOST, port: env.PORT, version: env.APP_VERSION, spa: spa.available }, "api.listening");
+
+  let shuttingDown = false;
+  const shutdown = async (): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info("api.shutdown.started");
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+      server.closeAllConnections();
+    });
+    await gateway.close();
+    await pubsub.close();
+    await cache.close();
+    if (db !== undefined) await db.close();
+    logger.info("api.shutdown.complete");
+  };
+
+  process.once("SIGTERM", () => {
+    shutdown().catch((error: unknown) => {
+      logger.error({ err: error }, "api.shutdown.failed");
+      process.exitCode = 1;
+    });
+  });
+  process.once("SIGINT", () => {
+    shutdown().catch((error: unknown) => {
+      logger.error({ err: error }, "api.shutdown.failed");
+      process.exitCode = 1;
+    });
+  });
+
+  return { server, env, logger, shutdown };
+}
+
+function buildRouters(
+  env: Env,
+  logger: Logger,
+  db: DbClient | undefined,
+  infra: { pubsub: PubSubPort; cache: ReturnType<typeof createCache> },
+): AppRouters {
+  const shopifyConfigured =
+    db !== undefined &&
+    env.SHOPIFY_API_KEY !== undefined &&
+    env.SHOPIFY_API_SECRET !== undefined &&
+    env.SHOPIFY_APP_URL !== undefined &&
+    env.SHOPIFY_SCOPES !== undefined &&
+    env.ENCRYPTION_KEY !== undefined;
+
+  const authConfigured = shopifyConfigured && env.JWT_SECRET !== undefined;
+
+  const { cache } = infra;
+
+  // M7 public legal plane — DB-free static content; served in every mode.
+  const legal = legalRouter({
+    cache,
+    entityName: env.LEGAL_ENTITY_NAME ?? "PROFIT TOOL AI",
+    supportEmail: env.SUPPORT_EMAIL ?? null,
+    appUrl: env.APP_URL,
+  });
+
+  if (db === undefined) {
+    // No database: API cannot serve tenant traffic — routers surface as 404 via
+    // notFound; health endpoints remain the only functional surface (M0 mode).
+    logger.warn("database not configured — auth/store/shopify routes disabled");
+    return { legal, apiV1: stubApiV1() };
+  }
+
+  const audit = new AuditService(db.db, logger);
+
+  if (!shopifyConfigured || !authConfigured) {
+    if (env.NODE_ENV === Environment.Production || env.NODE_ENV === Environment.Staging) {
+      // Env superRefine already guarantees these in hosted envs; belt-and-braces
+      // so a misconfigured prod never runs half-wired.
+      throw new Error("shopify/auth configuration incomplete in hosted environment");
+    }
+    logger.warn("shopify credentials incomplete — /shopify/* and /api/v1/auth/* disabled (dev mode)");
+    return { legal, apiV1: stubApiV1() };
+  }
+
+  const encryption = EncryptionService.create(
+    requireEnv(env, "ENCRYPTION_KEY"),
+    env.ENCRYPTION_KEY_PREVIOUS,
+  );
+
+  // M2 data-plane producers: queue + durable job mirror. Driver selection
+  // happens inside the factories (Redis → BullMQ/RedisCache; absent →
+  // in-process), never in business code.
+  const queue = createJobQueue({ logger, redisUrl: env.REDIS_URL });
+  const persistence = new JobPersistence(db.db, logger);
+
+  const enqueueWebhookProcess = async (storeId: string, webhookLogId: string): Promise<void> => {
+    await persistence.enqueuePersistent(
+      queue,
+      WebhookProcessJob,
+      { storeId, webhookLogId },
+      { jobId: `webhook:${webhookLogId}` },
+    );
+  };
+
+  const afterStoreProvisioned = async (storeId: string): Promise<void> => {
+    const runGroupId = randomUUID();
+    await persistence.enqueuePersistent(
+      queue,
+      SyncStoreFullJob,
+      { storeId, runGroupId },
+      { jobId: `sync:full:${storeId}:${runGroupId}` },
+    );
+    await persistence.enqueuePersistent(
+      queue,
+      ShopifyEnsureWebhooksJob,
+      { storeId },
+      { jobId: `webhooks:ensure:${storeId}:${runGroupId}` },
+    );
+  };
+
+  const oauth = new ShopifyOauthService({
+    db: db.db,
+    encryption,
+    config: {
+      apiKey: requireEnv(env, "SHOPIFY_API_KEY"),
+      apiSecret: requireEnv(env, "SHOPIFY_API_SECRET"),
+      appUrl: requireEnv(env, "SHOPIFY_APP_URL"),
+      scopes: requireEnv(env, "SHOPIFY_SCOPES"),
+      apiVersion: env.SHOPIFY_API_VERSION,
+    },
+    audit,
+    logger,
+    afterProvision: async (storeId) => {
+      // A failed scheduling attempt must never break the install redirect —
+      // the daily maintenance tick re-drives both jobs.
+      try {
+        await afterStoreProvisioned(storeId);
+      } catch (error) {
+        logger.error({ err: error, storeId }, "shopify.provision_fanout.failed");
+      }
+      // M5 growth funnel step 1 (deduped per store): install = store connected.
+      try {
+        await new EngagementService(db.db).emit({ storeId, kind: EngagementEventKind.StoreConnected });
+      } catch (error) {
+        logger.warn({ err: error, storeId }, "engagement.store_connected.failed");
+      }
+    },
+  });
+  const webhooks = new ShopifyWebhookService({
+    db: db.db,
+    audit,
+    logger,
+    apiSecret: requireEnv(env, "SHOPIFY_API_SECRET"),
+    enqueueWebhookProcess,
+  });
+  const jwt = new JwtService({
+    accessSecret: requireEnv(env, "JWT_SECRET"),
+    accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
+  });
+  const auth = new AuthService({
+    db: db.db,
+    jwt,
+    oauth,
+    audit,
+    logger,
+    encryption,
+    shopifyTokenConfig: {
+      apiKey: requireEnv(env, "SHOPIFY_API_KEY"),
+      apiSecret: requireEnv(env, "SHOPIFY_API_SECRET"),
+    },
+    refreshTtlSeconds: env.JWT_REFRESH_TTL_SECONDS,
+  });
+
+  // M5: ONE notification service shared by the notifications API and the
+  // billing router (charge lifecycle alerts land in the same drawer).
+  const notifications = new NotificationService(db.db, infra.pubsub);
+
+  /**
+   * M5 charge provider factory: resolves the store's OFFLINE token through the
+   * established sync helper. Unavailability is TYPED (null) — routers answer
+   * 503 BILLING_UNAVAILABLE, never a simulated charge.
+   */
+  const providerFor = async (storeId: string): Promise<BillingChargeProvider | null> => {
+    try {
+      const admin = await resolveStoreAdminContext(db.db, encryption, storeId);
+      return new ShopifyBillingProvider(admin.shopDomain, admin.accessToken, env.SHOPIFY_API_VERSION);
+    } catch (error) {
+      logger.warn({ err: error, storeId }, "billing.provider.unavailable");
+      return null;
+    }
+  };
+
+  /**
+   * M8 failsafe construction (same rule as the worker): the AI provider and
+   * SMTP sender exist ONLY when fully configured. Null is the honest
+   * "capability unavailable" state — copilot answers stay deterministic and
+   * report delivery reports the typed outcome, never a crash.
+   */
+  const aiProvider =
+    env.GEMINI_API_KEY !== undefined
+      ? new GeminiProvider({
+          apiKey: env.GEMINI_API_KEY,
+          models: {
+            [ModelTier.Triage]: env.AI_DEFAULT_GEMINI_MODEL,
+            [ModelTier.Standard]: env.AI_DEFAULT_GEMINI_MODEL,
+            [ModelTier.Deep]: env.AI_DEFAULT_GEMINI_MODEL,
+          },
+        })
+      : null;
+  const smtpConfigured =
+    env.SMTP_HOST !== undefined && env.SMTP_USER !== undefined && env.SMTP_PASSWORD !== undefined;
+  const emailSender = smtpConfigured
+    ? new SmtpEmailSender({
+        host: env.SMTP_HOST as string,
+        port: env.SMTP_PORT,
+        user: env.SMTP_USER as string,
+        password: env.SMTP_PASSWORD as string,
+        fromAddress: env.EMAIL_FROM,
+        fromName: "Profit Tool AI",
+      })
+    : null;
+
+  return {
+    shopify: shopifyRouter({ oauth, webhooks, logger }),
+    legal,
+    apiV1: {
+      // Launch readiness (ADR 37): maintenance guard is REAL here (flag row
+      // in platform_flags); stub/exempt mounts live in routes/v1 ordering.
+      maintenanceGuard: maintenanceModeGuard(new OpsFlagsService(db.db)),
+      auth: authRouter({ auth, jwt, cache }),
+      store: storeRouter({ db: db.db, jwt, audit, logger, supportEmail: env.SUPPORT_EMAIL ?? null }),
+      sync: syncRouter({ db: db.db, jwt, queue, persistence, cache }),
+      analytics: analyticsRouter({
+        db: db.db,
+        jwt,
+        storeCacheFor: (storeId) => createStoreCache(cache, storeId, logger),
+      }),
+      products: productsRouter({ db: db.db, jwt }),
+      customers: customersRouter({ db: db.db, jwt }),
+      orders: ordersRouter({ db: db.db, jwt }),
+      inventory: inventoryRouter({ db: db.db, jwt }),
+      notifications: notificationsRouter({ db: db.db, jwt, notifications }),
+      search: searchRouter({ db: db.db, jwt }),
+      auditLogs: auditLogsRouter({ db: db.db, jwt }),
+      subscription: subscriptionRouter({
+        db: db.db,
+        jwt,
+        audit,
+        logger,
+        defaultPlanCode: env.SHOPIFY_BILLING_PLAN,
+      }),
+      recommendations: recommendationsRouter({ db: db.db, jwt, queue, persistence, audit, logger }),
+      ai: aiRouter({ db: db.db, jwt }),
+      automation: automationRouter({ db: db.db, jwt }),
+      billing: billingRouter({
+        db: db.db,
+        jwt,
+        audit,
+        notifications,
+        logger,
+        providerFor,
+        billingTest: env.SHOPIFY_BILLING_TEST,
+        appUrl: requireEnv(env, "SHOPIFY_APP_URL"),
+        shopifyApiKey: env.SHOPIFY_API_KEY,
+      }),
+      engagement: engagementRouter({ db: db.db, jwt }),
+      admin: adminRouter({
+        db: db.db,
+        platformAdminKey: env.PLATFORM_ADMIN_KEY,
+        audit,
+        queue,
+        persistence,
+      }),
+      // M6 Automation Center plane (workflows + campaigns + exports + support
+      // share the queue producers; tracking is the public HMAC-token surface).
+      workflows: workflowsRouter({ db: db.db, jwt, audit, queue, persistence, logger }),
+      campaigns: campaignsRouter({ db: db.db, jwt, audit, queue, persistence, logger }),
+      exports: exportsRouter({ db: db.db, jwt, audit, queue, persistence, logger }),
+      support: supportRouter({ db: db.db, jwt, audit }),
+      tracking: trackingRouter({ db: db.db, logger, trackingSecret: env.TRACKING_SIGNING_SECRET }),
+      // M8: copilot + reports construct their provider/sender ONLY when fully
+      // configured — null means deterministic-first operation (ADR 32 failsafe).
+      copilot: copilotRouter({ db: db.db, jwt, provider: aiProvider }),
+      reports: reportsRouter({
+        db: db.db,
+        jwt,
+        logger,
+        provider: aiProvider,
+        emailSender,
+      }),
+    },
+  };
+}
+
+/** Unwired-module routers: mounted paths stay absent → uniform 404 envelope. */
+function stubApiV1(): AppRouters["apiV1"] {
+  return {
+    // No flags table in degraded mode → maintenance cannot be enabled;
+    // pass-through keeps the mount contract honest (ADR 37).
+    maintenanceGuard: (_req, _res, next) => {
+      next();
+    },
+    auth: Router(),
+    store: Router(),
+    sync: Router(),
+    analytics: Router(),
+    products: Router(),
+    customers: Router(),
+    orders: Router(),
+    inventory: Router(),
+    notifications: Router(),
+    search: Router(),
+    auditLogs: Router(),
+    subscription: Router(),
+    recommendations: Router(),
+    ai: Router(),
+    automation: Router(),
+    billing: Router(),
+    engagement: Router(),
+    admin: Router(),
+    workflows: Router(),
+    campaigns: Router(),
+    exports: Router(),
+    support: Router(),
+    tracking: Router(),
+    copilot: Router(),
+    reports: Router(),
+  };
+}
