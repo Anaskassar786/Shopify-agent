@@ -9,6 +9,16 @@ export interface ShopifyHttpOptions {
   readonly timeoutMs?: number;
   readonly maxRetries?: number;
   readonly baseDelayMs?: number;
+  /**
+   * Optional hook called at most **once** when a 401 is received.
+   * Intended exclusively for OFFLINE credential refresh via OfflineCredentialService.
+   * Must return a fresh access token string, or null/undefined if refresh is not possible.
+   * The client will retry the exact same request (method, url, body, other headers) once
+   * using the returned token. If the retry also yields 401, the error from the retry (or original)
+   * is surfaced and no further attempts are made.
+   * Never called for other 4xx or for 5xx/429 (those follow existing retry policy).
+   */
+  readonly onUnauthorized?: () => Promise<string | null | undefined>;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -109,6 +119,54 @@ async function shopifySendJson<TResponse>(
         throw new ShopifyHttpError(response.status, text, "shopify returned malformed JSON");
       }
     }
+
+    // 401 handling: exactly one refresh + one retry using provided hook (OFFLINE credential recovery).
+    // Only for 401. Never for other 4xx. Never creates extra loops.
+    if (response.status === 401 && options.onUnauthorized && attempt === 0) {
+      let freshToken: string | null | undefined = null;
+      try {
+        freshToken = await options.onUnauthorized();
+      } catch {
+        // refresh failed — fall through to surface original 401
+        freshToken = null;
+      }
+      if (freshToken && typeof freshToken === "string") {
+        // Retry the request **exactly once** with the refreshed token.
+        // Preserve method, body, url, other headers, timeout etc.
+        const retryHeaders = {
+          ...headers,
+          "X-Shopify-Access-Token": freshToken,
+        };
+        const retryInit: RequestInit = {
+          ...init,
+          headers: retryHeaders,
+        };
+        try {
+          const retryResponse = await fetchWithTimeout(url, retryInit, timeoutMs);
+          const retryText = await retryResponse.text();
+          if (retryResponse.ok) {
+            try {
+              return JSON.parse(retryText) as TResponse;
+            } catch {
+              throw new ShopifyHttpError(retryResponse.status, retryText, "shopify returned malformed JSON");
+            }
+          }
+          // Retry failed (e.g. still 401). Surface the retry error.
+          throw new ShopifyHttpError(
+            retryResponse.status,
+            retryText,
+            `shopify responded with ${retryResponse.status}`,
+          );
+        } catch (retryErr) {
+          if (retryErr instanceof ShopifyHttpError || retryErr instanceof ShopifyNetworkError) {
+            throw retryErr;
+          }
+          throw new ShopifyNetworkError("shopify request failed on 401 retry", retryErr);
+        }
+      }
+      // No usable fresh token — surface the original 401
+    }
+
     if (response.status === 429 || response.status >= 500) {
       if (attempt < maxRetries) {
         const retryAfter = response.headers.get("retry-after");
@@ -187,6 +245,48 @@ export async function shopifyGetJson<TResponse>(
         throw new ShopifyHttpError(response.status, text, "shopify returned malformed JSON");
       }
     }
+
+    // 401 handling: exactly one refresh + one retry (same as POST path)
+    if (response.status === 401 && options.onUnauthorized && attempt === 0) {
+      let freshToken: string | null | undefined = null;
+      try {
+        freshToken = await options.onUnauthorized();
+      } catch {
+        freshToken = null;
+      }
+      if (freshToken && typeof freshToken === "string") {
+        const retryHeaders = {
+          ...headers,
+          "X-Shopify-Access-Token": freshToken,
+        };
+        const retryInit: RequestInit = {
+          method: "GET",
+          headers: { Accept: "application/json", ...retryHeaders },
+        };
+        try {
+          const retryResponse = await fetchWithTimeout(url, retryInit, timeoutMs);
+          const retryText = await retryResponse.text();
+          if (retryResponse.ok) {
+            try {
+              return { data: JSON.parse(retryText) as TResponse, headers: retryResponse.headers };
+            } catch {
+              throw new ShopifyHttpError(retryResponse.status, retryText, "shopify returned malformed JSON");
+            }
+          }
+          throw new ShopifyHttpError(
+            retryResponse.status,
+            retryText,
+            `shopify responded with ${retryResponse.status}`,
+          );
+        } catch (retryErr) {
+          if (retryErr instanceof ShopifyHttpError || retryErr instanceof ShopifyNetworkError) {
+            throw retryErr;
+          }
+          throw new ShopifyNetworkError("shopify request failed on 401 retry", retryErr);
+        }
+      }
+    }
+
     if (response.status === 429 || response.status >= 500) {
       if (attempt < maxRetries) {
         const retryAfter = response.headers.get("retry-after");

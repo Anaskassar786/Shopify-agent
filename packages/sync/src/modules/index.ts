@@ -45,6 +45,7 @@ function restClient(ctx: SyncModuleContext): ShopifyPaginator {
     shopDomain: ctx.shopDomain,
     accessToken: ctx.accessToken,
     apiVersion: ctx.apiVersion,
+    ...(ctx.refreshAccessToken ? { refreshAccessToken: ctx.refreshAccessToken } : {}),
   };
   return new ShopifyPaginator(adminCtx, new RestThrottle({}));
 }
@@ -248,11 +249,13 @@ const metafieldsModule: SyncModuleImpl = {
     }
 
     // Product metafields via GraphQL pagination (cost-aware client-side pacing).
-    const graphql = new GraphqlPaginator({
+    const graphqlCtx: ShopifyAdminContext = {
       shopDomain: ctx.shopDomain,
       accessToken: ctx.accessToken,
       apiVersion: ctx.apiVersion,
-    });
+      ...(ctx.refreshAccessToken ? { refreshAccessToken: ctx.refreshAccessToken } : {}),
+    };
+    const graphql = new GraphqlPaginator(graphqlCtx);
     const query = `
       query ProductMetafields($first: Int!, $after: String) {
         products(first: $first, after: $after) {

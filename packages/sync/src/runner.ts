@@ -7,6 +7,10 @@ import { StoreStatus, SyncMode, SyncStatus, type SyncModule } from "@profit/type
 import type { ShopifyHttpOptions } from "@profit/shopify";
 import { SYNC_MODULES } from "./modules/index";
 import type { WriteStats } from "./writers";
+import {
+  OfflineCredentialService,
+  type OfflineCredential,
+} from "./credentials/offline-credential.service";
 
 /**
  * Sync run lifecycle (P2 sync engine: "logs every sync run", "resumable").
@@ -31,6 +35,10 @@ export interface SyncRunnerDeps {
   readonly logger: Logger;
   /** Transport budget knobs (P5: retries are config, not constants). */
   readonly httpOptions?: ShopifyHttpOptions | undefined;
+  /** Centralized OFFLINE credential service (expiring token + refresh).
+   * When present, resolveStoreAdminContext delegates to it for fresh tokens.
+   */
+  readonly offlineCredentialService?: OfflineCredentialService | undefined;
 }
 
 export class SyncConfigurationError extends Error {
@@ -87,15 +95,30 @@ export interface ResolvedAdminContext {
 }
 
 /**
- * Resolve a store's OFFLINE-encrypted token into a working admin context.
- * Sync runs, webhook appliers and the webhook reconciler all share exactly
- * this path — token material never leaves server-side code (P12).
+ * Resolve a store's OFFLINE credential (expiring or non-expiring) into a working
+ * admin context. Delegates to OfflineCredentialService when provided so that
+ * expiring offline tokens are refreshed transparently before use.
+ *
+ * This is the SINGLE path for all background/sync/webhook/billing/admin API calls
+ * that need an OFFLINE token. Never bypass it with raw DB decrypt.
  */
 export async function resolveStoreAdminContext(
   db: ProfitDb,
   encryption: EncryptionService,
   storeId: string,
+  offlineCredentialService?: OfflineCredentialService,
 ): Promise<ResolvedAdminContext> {
+  // Preferred path: use centralized service (handles expiry + refresh + atomic persist)
+  if (offlineCredentialService) {
+    const cred: OfflineCredential = await offlineCredentialService.getValidAccessToken(storeId);
+    return {
+      shopDomain: cred.shopDomain,
+      accessToken: cred.accessToken,
+    };
+  }
+
+  // Legacy / fallback direct path (should only be used in tests or during migration wiring).
+  // In production composition roots this path should be eliminated.
   const storeRows = await db
     .select({ id: stores.id, shopDomain: stores.shopDomain, status: stores.status })
     .from(stores)
@@ -141,7 +164,17 @@ export async function runModuleSync(
     deps.db,
     deps.encryption,
     request.storeId,
+    deps.offlineCredentialService,
   );
+
+  // Provide a single-use refresh hook (bound to this store + service) for 401 recovery.
+  // The HTTP layer (via ShopifyAdminContext) will call it at most once on 401.
+  const refreshAccessToken = deps.offlineCredentialService
+    ? async () => {
+        const cred = await deps.offlineCredentialService!.getValidAccessToken(request.storeId);
+        return cred.accessToken;
+      }
+    : undefined;
   const logger = deps.logger.child({ storeId: request.storeId, module: request.module });
 
   const resume =
@@ -224,6 +257,7 @@ export async function runModuleSync(
       lastIncrementalWatermark,
       checkpoint,
       ...(deps.httpOptions !== undefined ? { httpOptions: deps.httpOptions } : {}),
+      ...(refreshAccessToken ? { refreshAccessToken } : {}),
     });
     await deps.db
       .update(syncHistory)

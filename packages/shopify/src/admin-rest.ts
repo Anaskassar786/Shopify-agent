@@ -21,6 +21,13 @@ export interface ShopifyAdminContext {
   readonly shopDomain: string;
   readonly accessToken: string;
   readonly apiVersion: string;
+  /**
+   * Optional callback (bound to a specific store + OfflineCredentialService)
+   * that returns a freshly validated access token.
+   * Used exclusively for one-time 401 recovery + single retry.
+   * Never called for other status codes.
+   */
+  readonly refreshAccessToken?: () => Promise<string>;
 }
 
 export interface RestPage<TBody> {
@@ -77,10 +84,27 @@ export class ShopifyPaginator {
         search.set(key, value);
       }
     }
+    const getHeaders = () => ({ "X-Shopify-Access-Token": this.ctx.accessToken });
+    const httpOpts: ShopifyHttpOptions = {
+      maxRetries: 6,
+      ...options,
+      ...(this.ctx.refreshAccessToken
+        ? {
+            onUnauthorized: async () => {
+              try {
+                const fresh = await this.ctx.refreshAccessToken!();
+                return fresh || undefined;
+              } catch {
+                return undefined;
+              }
+            },
+          }
+        : {}),
+    };
     const result = await shopifyGetJson<TBody>(
       this.resourceUrl(path, search),
-      { "X-Shopify-Access-Token": this.ctx.accessToken },
-      { maxRetries: 6, ...options },
+      getHeaders(),
+      httpOpts,
     );
     if (typeof result.data !== "object" || result.data === null) {
       throw new ShopifyHttpError(200, "body", `shopify resource ${path} returned malformed JSON`);

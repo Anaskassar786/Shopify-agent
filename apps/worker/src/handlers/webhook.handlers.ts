@@ -67,7 +67,12 @@ export function webhookProcessHandler(deps: WorkerDeps): JobHandler<WebhookProce
       throw new Error(`webhook.process: store ${storeId} vanished mid-processing`);
     }
 
-    const admin = await resolveStoreAdminContext(deps.db.db, deps.encryption, storeId);
+    const admin = await resolveStoreAdminContext(
+      deps.db.db,
+      deps.encryption,
+      storeId,
+      deps.offlineCredentialService,
+    );
 
     try {
       const result = await applier({

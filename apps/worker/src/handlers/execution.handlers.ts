@@ -181,7 +181,12 @@ function makeExecuteActionHandler(deps: WorkerDeps, preflightMeter: UsageMeter |
     }
     let admin: ShopifyAdminContext | null = null;
     try {
-      const resolvedAdmin = await resolveStoreAdminContext(deps.db.db, deps.encryption, storeId);
+      const resolvedAdmin = await resolveStoreAdminContext(
+        deps.db.db,
+        deps.encryption,
+        storeId,
+        deps.offlineCredentialService,
+      );
       admin = { ...resolvedAdmin, apiVersion: deps.env.SHOPIFY_API_VERSION };
     } catch (error) {
       deps.logger.warn({ err: error, storeId }, "ai.execute.admin_context_unresolvable");

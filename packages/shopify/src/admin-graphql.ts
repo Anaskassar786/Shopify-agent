@@ -51,13 +51,29 @@ export class GraphqlPaginator {
   ): AsyncGenerator<{ connection: TConnection; endCursor: string | null }, void, void> {
     let after = resumeAfter;
     for (;;) {
+      const httpOpts: ShopifyHttpOptions = {
+        maxRetries: 6,
+        ...this.options,
+        ...(this.ctx.refreshAccessToken
+          ? {
+              onUnauthorized: async () => {
+                try {
+                  const fresh = await this.ctx.refreshAccessToken!();
+                  return fresh || undefined;
+                } catch {
+                  return undefined;
+                }
+              },
+            }
+          : {}),
+      };
       const result = await shopifyGraphqlRaw<Record<string, TConnection | null>>(
         this.ctx.shopDomain,
         this.ctx.apiVersion,
         this.ctx.accessToken,
         query,
         { ...variables, first: pageSize, after },
-        { maxRetries: 6, ...this.options },
+        httpOpts,
       );
       const connection = result.data[connectionKey] ?? null;
       if (connection === null) {

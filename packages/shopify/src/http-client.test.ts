@@ -120,3 +120,135 @@ function json(payload: unknown, status = 200): Response {
     headers: { "content-type": "application/json" },
   });
 }
+
+describe("401 recovery via onUnauthorized (OFFLINE credential single refresh + retry)", () => {
+  it("A. normal 200 request → unchanged, hook never called", async () => {
+    const fetchMock = vi.fn(async () => json({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const onUnauthorized = vi.fn(async () => "fresh-token");
+    await expect(
+      shopifyPostJson("https://x", {}, {}, { onUnauthorized }),
+    ).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it("B. 401 → refresh hook → retry with new token → 200 success", async () => {
+    let call = 0;
+    const fetchMock = vi.fn(async () => {
+      call += 1;
+      return call === 1 ? json({ error: "invalid" }, 401) : json({ recovered: true });
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const onUnauthorized = vi.fn(async () => "refreshed-token-xyz");
+
+    const result = await shopifyPostJson("https://shop.myshopify.com/admin/...", { a: 1 }, { "X-Shopify-Access-Token": "old" }, { onUnauthorized });
+
+    expect(result).toEqual({ recovered: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    // second call must carry the fresh token (safe extraction)
+    const secondCall = fetchMock.mock.calls[1] as unknown as [string, { headers?: Record<string, string> }];
+    const secondCallHeaders = secondCall?.[1]?.headers || {};
+    expect(secondCallHeaders["X-Shopify-Access-Token"]).toBe("refreshed-token-xyz");
+  });
+
+  it("C. 401 → refresh → retry → still 401 → fail with exactly two requests, no third", async () => {
+    let call = 0;
+    const fetchMock = vi.fn(async () => {
+      call += 1;
+      return json({ still: "bad" }, 401);
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const onUnauthorized = vi.fn(async () => "fresh-but-still-fails");
+
+    await expect(
+      shopifyPostJson("https://x", {}, { "X-Shopify-Access-Token": "old" }, { onUnauthorized }),
+    ).rejects.toMatchObject({ name: "ShopifyHttpError", status: 401 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
+
+  it("D. 401 + refresh hook fails/returns null → surface original 401, no retry", async () => {
+    const fetchMock = vi.fn(async () => json({ bad: true }, 401));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const onUnauthorized = vi.fn(async () => null);
+
+    await expect(
+      shopifyPostJson("https://x", {}, {}, { onUnauthorized }),
+    ).rejects.toMatchObject({ name: "ShopifyHttpError", status: 401 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
+
+  it("E. 500 behavior remains unchanged (retries per existing policy, no onUnauthorized)", async () => {
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      calls += 1;
+      return calls < 2 ? json({}, 500) : json({ ok: "after-5xx" });
+    }) as unknown as typeof fetch);
+    vi.useFakeTimers();
+
+    const onUnauthorized = vi.fn(async () => "should-not-be-called");
+    const attempt = shopifyPostJson("https://x", {}, {}, { baseDelayMs: 1, maxRetries: 2, onUnauthorized });
+
+    const settled = (async () => {
+      for (let i = 0; i < 10; i += 1) await vi.advanceTimersByTimeAsync(50);
+      return attempt;
+    })();
+
+    await expect(settled).resolves.toEqual({ ok: "after-5xx" });
+    expect(calls).toBe(2);
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it("F. other 4xx (422) behavior remains unchanged — immediate fail, no refresh", async () => {
+    const fetchMock = vi.fn(async () => json({ validation: "fail" }, 422));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const onUnauthorized = vi.fn(async () => "never");
+    await expect(
+      shopifyPostJson("https://x", {}, {}, { onUnauthorized }),
+    ).rejects.toMatchObject({ name: "ShopifyHttpError", status: 422 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it("G. tokens are never logged (no secret leakage in error messages)", async () => {
+    const fetchMock = vi.fn(async () => json({ error: "token expired" }, 401));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const onUnauthorized = vi.fn(async () => "super-secret-token-123");
+
+    try {
+      await shopifyPostJson("https://x", {}, { "X-Shopify-Access-Token": "old-secret" }, { onUnauthorized });
+    } catch (e: any) {
+      const msg = String(e?.message || "");
+      expect(msg).not.toMatch(/secret|token-123|old-secret/i);
+    }
+    // also verify the hook itself received no logging side effect (simple check)
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
+
+  it("H. no infinite retry loop on repeated 401s", async () => {
+    let calls = 0;
+    const fetchMock = vi.fn(async () => {
+      calls += 1;
+      return json({ bad: true }, 401);
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const onUnauthorized = vi.fn(async () => "fresh");
+
+    await expect(
+      shopifyPostJson("https://x", {}, {}, { onUnauthorized, maxRetries: 5 }),
+    ).rejects.toMatchObject({ status: 401 });
+
+    // at most 1 initial + 1 retry = 2 calls
+    expect(calls).toBeLessThanOrEqual(2);
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
+});

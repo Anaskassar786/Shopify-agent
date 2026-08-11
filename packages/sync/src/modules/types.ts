@@ -30,6 +30,12 @@ export interface SyncModuleContext {
   readonly lastIncrementalWatermark: Date | null;
   readonly checkpoint: PageCheckpoint;
   readonly httpOptions?: ShopifyHttpOptions | undefined;
+  /**
+   * Optional hook that returns a freshly validated OFFLINE access token.
+   * Populated by runner when OfflineCredentialService is available.
+   * Used by Shopify HTTP layer for exactly one 401 recovery + retry.
+   */
+  readonly refreshAccessToken?: () => Promise<string>;
 }
 
 export interface SyncModuleImpl {

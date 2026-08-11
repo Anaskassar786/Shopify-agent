@@ -46,6 +46,12 @@ export const shopifySessions = pgTable(
     accessTokenEncrypted: text("access_token_encrypted").notNull(),
     scopes: text("scopes").array().notNull().default(sql`'{}'::text[]`),
     expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }),
+    /** For expiring offline tokens (Shopify public app requirement 2026+). */
+    refreshTokenEncrypted: text("refresh_token_encrypted"),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
   },
   (table) => [
     uniqueIndex("shopify_sessions_store_type_unique").on(

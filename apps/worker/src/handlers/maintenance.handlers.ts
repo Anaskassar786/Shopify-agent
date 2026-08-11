@@ -38,7 +38,12 @@ export function ensureWebhooksHandler(
 ): JobHandler<ShopifyEnsureWebhooksPayload> {
   return async (ctx) => {
     const { storeId } = ctx.payload;
-    const admin = await resolveStoreAdminContext(deps.db.db, deps.encryption, storeId);
+    const admin = await resolveStoreAdminContext(
+      deps.db.db,
+      deps.encryption,
+      storeId,
+      deps.offlineCredentialService,
+    );
     const appUrl = deps.env.SHOPIFY_APP_URL;
     if (appUrl === undefined) {
       throw new Error("SHOPIFY_APP_URL required to reconcile webhook subscriptions");

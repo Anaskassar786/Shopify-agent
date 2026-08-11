@@ -10,6 +10,7 @@ import { GeminiProvider, SmtpEmailSender } from "@profit/ai";
 import { EngagementEventKind, Environment, ModelTier } from "@profit/types";
 import { createJobQueue, JobPersistence } from "@profit/queue";
 import {
+  OfflineCredentialService,
   resolveStoreAdminContext,
   ShopifyEnsureWebhooksJob,
   SyncStoreFullJob,
@@ -250,6 +251,16 @@ function buildRouters(
     env.ENCRYPTION_KEY_PREVIOUS,
   );
 
+  // Centralized OFFLINE credential service (expiring token refresh + atomic persistence).
+  // MUST be the single source for all OFFLINE token access in production.
+  const offlineCredentialService = new OfflineCredentialService({
+    db: db.db,
+    encryption,
+    apiKey: requireEnv(env, "SHOPIFY_API_KEY"),
+    apiSecret: requireEnv(env, "SHOPIFY_API_SECRET"),
+    logger,
+  });
+
   // M2 data-plane producers: queue + durable job mirror. Driver selection
   // happens inside the factories (Redis → BullMQ/RedisCache; absent →
   // in-process), never in business code.
@@ -338,14 +349,19 @@ function buildRouters(
   // billing router (charge lifecycle alerts land in the same drawer).
   const notifications = new NotificationService(db.db, infra.pubsub);
 
-  /**
+  /** 
    * M5 charge provider factory: resolves the store's OFFLINE token through the
-   * established sync helper. Unavailability is TYPED (null) — routers answer
-   * 503 BILLING_UNAVAILABLE, never a simulated charge.
+   * centralized credential service (handles expiring offline tokens + refresh).
+   * Unavailability is TYPED (null) — routers answer 503 BILLING_UNAVAILABLE.
    */
   const providerFor = async (storeId: string): Promise<BillingChargeProvider | null> => {
     try {
-      const admin = await resolveStoreAdminContext(db.db, encryption, storeId);
+      const admin = await resolveStoreAdminContext(
+        db.db,
+        encryption,
+        storeId,
+        offlineCredentialService,
+      );
       return new ShopifyBillingProvider(admin.shopDomain, admin.accessToken, env.SHOPIFY_API_VERSION);
     } catch (error) {
       logger.warn({ err: error, storeId }, "billing.provider.unavailable");

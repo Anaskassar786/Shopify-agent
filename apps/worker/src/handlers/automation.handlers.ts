@@ -54,7 +54,12 @@ import type { WorkerDeps } from "./deps";
 /** Offline-token REST write surface for workflow actions (tag/customer, price rules). */
 async function adminPortFor(deps: WorkerDeps, storeId: string): Promise<WorkflowAdminPort | null> {
   try {
-    const admin = await resolveStoreAdminContext(deps.db.db, deps.encryption, storeId);
+    const admin = await resolveStoreAdminContext(
+      deps.db.db,
+      deps.encryption,
+      storeId,
+      deps.offlineCredentialService,
+    );
     const headers = { "X-Shopify-Access-Token": admin.accessToken };
     const options = {
       maxRetries: deps.env.SHOPIFY_HTTP_MAX_RETRIES,

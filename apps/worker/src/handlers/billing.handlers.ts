@@ -44,7 +44,12 @@ class WorkerReconcileProvider implements ReconcileProvider {
   constructor(private readonly deps: WorkerDeps) {}
   async forStore(storeId: string): Promise<BillingChargeProvider | null> {
     try {
-      const admin = await resolveStoreAdminContext(this.deps.db.db, this.deps.encryption, storeId);
+      const admin = await resolveStoreAdminContext(
+        this.deps.db.db,
+        this.deps.encryption,
+        storeId,
+        this.deps.offlineCredentialService,
+      );
       return new ShopifyBillingProvider(admin.shopDomain, admin.accessToken, this.deps.env.SHOPIFY_API_VERSION);
     } catch (error) {
       if (!(error instanceof SyncConfigurationError)) {

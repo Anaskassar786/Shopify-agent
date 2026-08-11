@@ -21,6 +21,8 @@ const schema = z.object({
   REDIS_URL: z.string().min(1).optional(),
   ENCRYPTION_KEY: z.string().min(1).optional(),
   ENCRYPTION_KEY_PREVIOUS: z.string().min(1).optional(),
+  SHOPIFY_API_KEY: z.string().min(1).optional(),
+  SHOPIFY_API_SECRET: z.string().min(1).optional(),
   SHOPIFY_APP_URL: z.string().url().optional(),
   SHOPIFY_API_VERSION: z.string().min(1).default("2025-10"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),

@@ -6,6 +6,7 @@ import type { JobPersistence, JobQueue } from "@profit/queue";
 import type { AiProvider, EmailSender } from "@profit/ai";
 import type { SmsSender } from "@profit/automation";
 import type { WorkerEnv } from "../config/env";
+import type { OfflineCredentialService } from "@profit/sync";
 
 /**
  * Shared dependency bundle — constructed once in server.ts (composition
@@ -33,4 +34,9 @@ export interface WorkerDeps {
   readonly trackingSecret: string | null;
   /** M6: public base URL embedded in generated tracking links (API origin). */
   readonly trackingBaseUrl: string;
+
+  /** Centralized OFFLINE Shopify credential service (expiring tokens + refresh).
+   * Injected from composition root. All token access MUST go through this.
+   */
+  readonly offlineCredentialService?: OfflineCredentialService | undefined;
 }
