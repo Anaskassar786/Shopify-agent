@@ -85,7 +85,7 @@ export class BullMqJobQueue implements JobQueue {
   ): Promise<string> {
     if (this.closed) throw new Error("queue is closed");
     const validated = validatePayload(definition, payload);
-    const jobId = options.jobId ?? randomUUID();
+    const jobId = (options.jobId ?? randomUUID()).replace(/:/g, "-");
     const attempts = definition.attempts ?? JOB_DEFAULTS.attempts;
     const backoffBaseMs = definition.backoffBaseMs ?? JOB_DEFAULTS.backoffBaseMs;
     const queue = this.queueFor(definition.queue);
