@@ -68,6 +68,7 @@ export function moduleSyncHandler(deps: WorkerDeps): JobHandler<SyncModulePayloa
           maxRetries: deps.env.SHOPIFY_HTTP_MAX_RETRIES,
           baseDelayMs: deps.env.SHOPIFY_HTTP_BASE_DELAY_MS,
         },
+        offlineCredentialService: deps.offlineCredentialService,
       },
       { storeId, module, mode, ...(runGroupId !== undefined ? { runGroupId } : {}) },
       );

@@ -11,3 +11,9 @@ export * from "./webhook-registrar";
 export * from "./analytics";
 export * from "./jobs";
 export * from "./fanin";
+export {
+  OfflineCredentialService,
+  type OfflineCredential,
+  type OfflineCredentialServiceDeps,
+  ShopifyReauthRequiredError,
+} from "./credentials/offline-credential.service";

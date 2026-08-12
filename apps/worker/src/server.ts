@@ -9,6 +9,7 @@ import {
   AnalyticsNightlyTickJob,
   AnalyticsRefreshJob,
   MaintenanceDailyTickJob,
+  OfflineCredentialService,
   SCHEDULES,
   ShopifyEnsureWebhooksJob,
   SyncModuleJob,
@@ -229,6 +230,19 @@ export async function startWorker(): Promise<RunningWorker> {
   });
   const persistence = new JobPersistence(db.db, logger);
 
+  // Centralized OFFLINE credential service (the single source of truth for expiring tokens + refresh).
+  // Guard + hostedSchema guarantee these are present (as strings) for production worker.
+  if (!env.SHOPIFY_API_KEY || !env.SHOPIFY_API_SECRET) {
+    throw new Error("worker requires SHOPIFY_API_KEY and SHOPIFY_API_SECRET (for OfflineCredentialService)");
+  }
+  const offlineCredentialService = new OfflineCredentialService({
+    db: db.db,
+    encryption,
+    apiKey: env.SHOPIFY_API_KEY,
+    apiSecret: env.SHOPIFY_API_SECRET,
+    logger,
+  });
+
   // M4: provider + email sender construct ONLY when fully configured —
   // null means "capability unavailable" (failsafe), which services surface
   // honestly (run lands PROVIDER_UNAVAILABLE / tool reports unavailable).
@@ -285,6 +299,7 @@ export async function startWorker(): Promise<RunningWorker> {
     smsSender,
     trackingSecret,
     trackingBaseUrl,
+    offlineCredentialService,
   };
 
   persistence.attach(queue);

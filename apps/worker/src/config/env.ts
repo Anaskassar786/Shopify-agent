@@ -28,6 +28,9 @@ const schema = z.object({
   SYNC_INCREMENTAL_INTERVAL_MS: z.coerce.number().int().min(60_000).default(3_600_000),
   SHOPIFY_HTTP_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(6),
   SHOPIFY_HTTP_BASE_DELAY_MS: z.coerce.number().int().min(1).max(10_000).default(250),
+  /** For OfflineCredentialService (expiring offline tokens + refresh). */
+  SHOPIFY_API_KEY: z.string().min(1).optional(),
+  SHOPIFY_API_SECRET: z.string().min(1).optional(),
   ANALYTICS_REFRESH_INTERVAL_MS: z.coerce.number().int().min(300_000).default(21_600_000),
   /** M4 AI plane — absent GEMINI_API_KEY = provider unavailable (failsafe, not an error). */
   GEMINI_API_KEY: z.string().min(1).optional(),

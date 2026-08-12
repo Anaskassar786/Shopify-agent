@@ -5,6 +5,7 @@ import type { Logger } from "@profit/logger";
 import type { JobPersistence, JobQueue } from "@profit/queue";
 import type { AiProvider, EmailSender } from "@profit/ai";
 import type { SmsSender } from "@profit/automation";
+import type { OfflineCredentialService } from "@profit/sync";
 import type { WorkerEnv } from "../config/env";
 
 /**
@@ -33,4 +34,6 @@ export interface WorkerDeps {
   readonly trackingSecret: string | null;
   /** M6: public base URL embedded in generated tracking links (API origin). */
   readonly trackingBaseUrl: string;
+  /** Centralized OFFLINE credential service for expiring Shopify tokens + 401 refresh. */
+  readonly offlineCredentialService?: import("@profit/sync").OfflineCredentialService;
 }
