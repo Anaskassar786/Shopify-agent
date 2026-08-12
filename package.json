@@ -3,7 +3,7 @@
   "version": "1.1.1",
   "private": true,
   "type": "module",
-  "description": "PROFIT TOOL AI — Enterprise AI decision support & revenue automation for Shopify merchants.",
+  "description": "PROFIT TOOL AI â€” Enterprise AI decision support & revenue automation for Shopify merchants.",
   "engines": {
     "node": ">=20"
   },
@@ -13,7 +13,7 @@
     "dev:worker": "pnpm --filter @profit/worker run dev",
     "dev:web": "pnpm --filter @profit/web run dev",
     "build": "pnpm -r --if-present run build",
-    "start": "node apps/api/dist/index.js",
+    "start": "node scripts/start-production.js",
     "start:worker": "node apps/worker/dist/index.js",
     "typecheck": "pnpm -r --if-present run typecheck",
     "test": "pnpm -r --if-present run test",
@@ -26,3 +26,5 @@
     "typescript": "^5.7.2"
   }
 }
+
+
